@@ -3,12 +3,19 @@
 #ifndef ARDUINO
 
 #include "amy.h"
+#include "introspection.h"
 #include "libminiaudio-audio.h"
 
 void delay_ms(uint32_t ms) {
     uint32_t start = amy_sysclock();
     while(amy_sysclock() - start < ms) usleep(THREAD_USLEEP);
 }
+
+static void write_query_response(const char *data, size_t len, void *context) {
+    (void)context;
+    fwrite(data, 1, len, stdout);
+}
+
 int main(int argc, char ** argv) {
     int8_t playback_device_id = -1;
     int8_t capture_device_id = -1;
@@ -56,6 +63,9 @@ int main(int argc, char ** argv) {
         char input[1024];
         fprintf(stdout, "#;\n");
         if (fgets(input, sizeof(input)-1, stdin) == NULL) break;
+        if (amy_introspection_query(input, write_query_response, NULL)) {
+            continue;
+        }
         if (input[0] == '?') {
             switch (input[1]) {
                 case 'c':

@@ -9,6 +9,10 @@ android {
     defaultConfig {
         minSdk = 26
 
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
+
         externalNativeBuild {
             cmake {
                 arguments += "-DANDROID_STL=c++_shared"

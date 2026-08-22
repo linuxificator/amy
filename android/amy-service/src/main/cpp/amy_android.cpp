@@ -105,6 +105,15 @@ public:
             return -ERANGE;
         }
 
+        LOGI("Oboe output: deviceId=%d sharing=%d performance=%d usage=%d content=%d framesPerBurst=%d capacity=%d",
+             mStream->getDeviceId(),
+             static_cast<int>(mStream->getSharingMode()),
+             static_cast<int>(mStream->getPerformanceMode()),
+             static_cast<int>(mStream->getUsage()),
+             static_cast<int>(mStream->getContentType()),
+             mStream->getFramesPerBurst(),
+             mStream->getBufferCapacityInFrames());
+
         mBlock = nullptr;
         mBlockFrame = AMY_BLOCK_SIZE;
         mAudioCallbackSeen.store(false, std::memory_order_release);
@@ -164,6 +173,10 @@ public:
         LOGI("AMY/Oboe started: %d Hz, %d-frame AMY blocks, socket=%s",
              AMY_SAMPLE_RATE, AMY_BLOCK_SIZE, socketPath);
         return 0;
+    }
+
+    int32_t outputDeviceId() const {
+        return mStream ? mStream->getDeviceId() : -1;
     }
 
     void stop() {
@@ -292,6 +305,12 @@ Java_org_amy_audio_AmyService_nativeStart(JNIEnv *env, jclass, jstring socketPat
 
     env->ReleaseStringUTFChars(socketPath, path);
     return result;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_amy_audio_AmyService_nativeGetOutputDeviceId(JNIEnv *, jclass) {
+    std::lock_guard<std::mutex> guard(gLifecycleMutex);
+    return gEngine ? gEngine->outputDeviceId() : -1;
 }
 
 extern "C" JNIEXPORT void JNICALL

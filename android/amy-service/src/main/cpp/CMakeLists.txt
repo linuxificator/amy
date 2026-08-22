@@ -39,12 +39,14 @@ target_include_directories(amy_android PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# AMY_DAISY currently selects AMY's existing 48 kHz / 128-frame build profile.
-# No Daisy platform code is linked; AMY_NO_MINIAUDIO makes Oboe the sole audio
-# backend. AMY_ANDROID is available for future Android-specific compile guards.
+# AMY_DAISY selects AMY's existing 48 kHz / 128-frame compile profile. Android
+# owns both the audio and MIDI device layers, so no Daisy device implementation
+# is linked: AMY_NO_MINIAUDIO leaves Oboe as the sole audio backend and
+# AMY_HOST_MIDI leaves run_midi/stop_midi/midi_out to amy_android.cpp.
 target_compile_definitions(amy_android PRIVATE
     AMY_ANDROID=1
     AMY_DAISY=1
+    AMY_HOST_MIDI=1
     AMY_NO_MINIAUDIO=1
     AMY_WAVETABLE=1
 )

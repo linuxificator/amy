@@ -3,6 +3,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <thread>
 
@@ -18,15 +19,15 @@ namespace {
 
 int connect_with_retry(const char *path) {
     if (path == nullptr || path[0] == '\0') return -EINVAL;
-    if (std::strlen(path) >= sizeof(sockaddr_un::sun_path)) return -ENAMETOOLONG;
+
+    sockaddr_un addr{};
+    if (std::strlen(path) >= sizeof(addr.sun_path)) return -ENAMETOOLONG;
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
 
     for (int attempt = 0; attempt < 100; ++attempt) {
         int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
         if (fd < 0) return -errno;
-
-        sockaddr_un addr{};
-        addr.sun_family = AF_UNIX;
-        std::strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
 
         if (connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0) {
             return fd;
@@ -53,6 +54,8 @@ int play_c_scale(const char *path) {
     int fd = connect_with_retry(path);
     if (fd < 0) return fd;
 
+    // Raw oscillator 0, sine wave, moderate volume. Every subsequent packet is
+    // an ordinary AMY wire command sent through the private amy.sock transport.
     int rc = send_wire(fd, "v0w0V0.30Z");
     if (rc < 0) {
         close(fd);

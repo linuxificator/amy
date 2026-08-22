@@ -8,15 +8,6 @@ on:
       - "tests/test_amy_unix_socket.c"
       - "tests/run_amy_unix_socket_test.sh"
       - ".github/workflows/android.yml"
-  push:
-    branches:
-      - feature/android-unix-socket
-    paths:
-      - "android/**"
-      - "src/**"
-      - "tests/test_amy_unix_socket.c"
-      - "tests/run_amy_unix_socket_test.sh"
-      - ".github/workflows/android.yml"
 
 permissions:
   contents: read

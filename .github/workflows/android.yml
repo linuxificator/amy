@@ -84,5 +84,7 @@ jobs:
             adb shell am start -W -n org.amy.hello/.MainActivity
             sleep 10
             adb logcat -d -s AmyAndroid:I AmyService:I AmyHelloWorld:I '*:S' | tee /tmp/amy-hello.log
-            grep -q "AMY/Oboe started" /tmp/amy-hello.log
-            grep -q "C scale complete" /tmp/amy-hello.log
+            test "$(grep -c 'AMY/Oboe started' /tmp/amy-hello.log)" -eq 1
+            test "$(grep -c 'C scale complete' /tmp/amy-hello.log)" -eq 1
+            ! grep -q "C scale failed" /tmp/amy-hello.log
+            grep -q "wire: v0n72l1Z" /tmp/amy-hello.log

@@ -9,6 +9,7 @@ set(AMY_SRC "${AMY_ROOT}/src")
 set(AMY_SOURCES
     ${AMY_SRC}/algorithms.c
     ${AMY_SRC}/amy.c
+    ${AMY_SRC}/amy_unix_socket.c
     ${AMY_SRC}/delay.c
     ${AMY_SRC}/envelope.c
     ${AMY_SRC}/filters.c
@@ -30,7 +31,6 @@ set(AMY_SOURCES
 
 add_library(amy_android SHARED
     amy_android.cpp
-    amy_socket_transport.c
     ${AMY_SOURCES}
 )
 

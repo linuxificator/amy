@@ -15,7 +15,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+
     private TextView status;
     private Button playButton;
 
@@ -62,7 +63,11 @@ public final class MainActivity extends Activity {
         setContentView(root);
 
         AmyService.start(this);
-        playScale();
+        if (state == null) {
+            playScale();
+        } else {
+            status.setText("AMY ready");
+        }
     }
 
     private void playScale() {
@@ -71,9 +76,10 @@ public final class MainActivity extends Activity {
         String socketPath = new File(getFilesDir(), AmyService.DEFAULT_SOCKET_NAME)
                 .getAbsolutePath();
 
-        executor.execute(() -> {
+        EXECUTOR.execute(() -> {
             int rc = nativePlayCScale(socketPath);
             runOnUiThread(() -> {
+                if (isDestroyed()) return;
                 if (rc == 0) {
                     status.setText("C scale complete");
                 } else {
@@ -82,12 +88,5 @@ public final class MainActivity extends Activity {
                 playButton.setEnabled(true);
             });
         });
-    }
-
-    @Override
-    protected void onDestroy() {
-        AmyService.stop(this);
-        executor.shutdownNow();
-        super.onDestroy();
     }
 }

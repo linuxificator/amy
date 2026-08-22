@@ -79,12 +79,22 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
           script: |
-            adb install -r android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
-            adb logcat -c
-            adb shell am start -W -n org.amy.hello/.MainActivity
-            sleep 10
-            adb logcat -d -s AmyAndroid:I AmyService:I AmyHelloWorld:I '*:S' | tee /tmp/amy-hello.log
-            test "$(grep -c 'AMY/Oboe started' /tmp/amy-hello.log)" -eq 1
-            test "$(grep -c 'C scale complete' /tmp/amy-hello.log)" -eq 1
-            ! grep -q "C scale failed" /tmp/amy-hello.log
-            grep -q "wire: v0n72l1Z" /tmp/amy-hello.log
+            run_fresh_install() {
+              log_file="$1"
+              adb uninstall org.amy.hello >/dev/null 2>&1 || true
+              adb install android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
+              adb logcat -c
+              adb shell am start -W -n org.amy.hello/.MainActivity
+              sleep 10
+              adb logcat -d -s AmyAndroid:I AmyService:I AmyHelloWorld:I '*:S' | tee "$log_file"
+              test "$(grep -c 'AMY/Oboe started' "$log_file")" -eq 1
+              test "$(grep -c 'C scale complete' "$log_file")" -eq 1
+              ! grep -q "C scale failed" "$log_file"
+              grep -q "wire: v0w0V0.80Z" "$log_file"
+              test "$(grep -Ec 'wire: v0n(60|62|64|65|67|69|71|72)l1Z' "$log_file")" -eq 8
+              grep -q "wire: v0n60l1Z" "$log_file"
+              grep -q "wire: v0n72l1Z" "$log_file"
+            }
+
+            run_fresh_install /tmp/amy-hello-first-install.log
+            run_fresh_install /tmp/amy-hello-second-install.log

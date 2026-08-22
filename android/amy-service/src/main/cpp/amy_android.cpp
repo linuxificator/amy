@@ -30,6 +30,20 @@ extern "C" void amy_update_tasks(void) {}
 extern "C" int16_t *amy_render_audio(void) { return nullptr; }
 extern "C" size_t amy_i2s_write(const uint8_t *, size_t) { return 0; }
 
+/*
+ * AMY_HOST_MIDI makes the embedder own the MIDI device layer. This Android
+ * service is controlled by AMY wire messages rather than a MIDI device, so the
+ * lifecycle hooks are no-ops. Preserve AMY's optional outgoing MIDI hook even
+ * though no platform MIDI port is opened here.
+ */
+extern "C" void run_midi(void) {}
+extern "C" void stop_midi(void) {}
+extern "C" void midi_out(uint8_t *bytes, uint16_t len) {
+    if (amy_global.config.amy_external_midi_output_hook != nullptr) {
+        amy_global.config.amy_external_midi_output_hook(bytes, len);
+    }
+}
+
 namespace {
 
 constexpr int kMaxCommandsPerBlock = 64;

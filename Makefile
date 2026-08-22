@@ -86,7 +86,7 @@ check-c-api:
 SOURCES += src/algorithms.c src/amy.c src/envelope.c src/examples.c src/parse.c \
 	src/filters.c src/oscillators.c src/pcm.c src/interp_partials.c src/custom.c \
 	src/delay.c src/log2_exp2.c src/patches.c src/transfer.c src/sequencer.c \
-	src/libminiaudio-audio.c src/instrument.c src/amy_midi.c src/api.c src/midi_mappings.c \
+	src/libminiaudio-audio.c src/instrument.c src/amy_midi.c src/api.c src/introspection.c src/midi_mappings.c \
         src/cv_trigger.c
 
 OBJECTS = $(patsubst %.c, %.o, $(SOURCES)) 
@@ -125,7 +125,7 @@ amy-message: $(OBJECTS) src/amy-message.o
 # rollovers 50 days out, which you can only hit by fast-forwarding the counters.
 CTESTS = tests/test_clock_wrap tests/test_sequencer_active tests/test_sequencer_bounds \
          tests/test_bus_config tests/test_patch_slots \
-         tests/test_synth_readout tests/test_log2_lut tests/test_clone_on_grow \
+         tests/test_synth_readout tests/test_introspection tests/test_log2_lut tests/test_clone_on_grow \
          tests/test_timebase_reset tests/test_osc_free_on_release \
          tests/test_voice_osc_range
 
@@ -157,7 +157,7 @@ updateref: qtest
 
 # Report the median FILTER_PROCESS timing over 50 runs.
 timing: amy-module
-	for a in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do ${PYTHON} -m amy.timing 2>&1 ; done > /tmp/timings.txt
+	for a in `seq 0 40`; do ${PYTHON} -m amy.timing 2>&1 ; done > /tmp/timings.txt
 	cat /tmp/timings.txt | grep AMY_RENDER: | sed -e 's/us//' | sort -n | awk ' { a[i++]=$$4; } END { print a[int(i/2)]; }'
 	cat /tmp/timings.txt | grep FILTER_PROCESS: | sed -e 's/us//' | sort -n | awk ' { a[i++]=$$4; } END { print a[int(i/2)]; }'
 	cat /tmp/timings.txt | grep PARAMETRIC_EQ_PROCESS: | sed -e 's/us//' | sort -n | awk ' { a[i++]=$$4; } END { print a[int(i/2)]; }'

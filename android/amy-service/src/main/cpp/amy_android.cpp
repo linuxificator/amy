@@ -5,10 +5,12 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 extern "C" {
 #include "amy.h"
@@ -47,6 +49,8 @@ extern "C" void midi_out(uint8_t *bytes, uint16_t len) {
 namespace {
 
 constexpr int kMaxCommandsPerBlock = 64;
+constexpr int kAudioReadyTimeoutMs = 2000;
+constexpr int kAudioReadyPollMs = 2;
 
 class AmyAndroidEngine final : public oboe::AudioStreamDataCallback,
                                public oboe::AudioStreamErrorCallback {
@@ -63,17 +67,11 @@ public:
         /* Keep AMY rendering entirely on Oboe's realtime callback thread. */
         config.platform.multicore = 0;
         config.platform.multithread = 0;
-        /* Omnichord Physical Strings can require fourteen simultaneous KS voices. */
+        /* Physical-string clients can require many simultaneous KS voices. */
         config.ks_oscs = 16;
 
         amy_start(config);
         mAmyStarted = true;
-
-        int socketResult = amy_unix_socket_start(&mSocket, socketPath);
-        if (socketResult != 0) {
-            stopAmy();
-            return socketResult;
-        }
 
         oboe::AudioStreamBuilder builder;
         builder.setDirection(oboe::Direction::Output);
@@ -90,7 +88,7 @@ public:
         oboe::Result result = builder.openStream(mStream);
         if (result != oboe::Result::OK || !mStream) {
             LOGE("Oboe openStream failed: %s", oboe::convertToText(result));
-            cleanupSocketAndAmy();
+            stopAmy();
             return static_cast<int>(result);
         }
 
@@ -103,22 +101,65 @@ public:
                  mStream->getSampleRate());
             mStream->close();
             mStream.reset();
-            cleanupSocketAndAmy();
+            stopAmy();
             return -ERANGE;
         }
 
         mBlock = nullptr;
         mBlockFrame = AMY_BLOCK_SIZE;
+        mAudioCallbackSeen.store(false, std::memory_order_release);
         mRunning.store(true, std::memory_order_release);
+
         result = mStream->requestStart();
         if (result != oboe::Result::OK) {
             LOGE("Oboe requestStart failed: %s", oboe::convertToText(result));
             mRunning.store(false, std::memory_order_release);
             mStream->close();
             mStream.reset();
-            cleanupSocketAndAmy();
+            stopAmy();
             return static_cast<int>(result);
         }
+
+        // Do not publish amy.sock until the realtime audio callback has actually
+        // executed. This makes successful socket connect a useful readiness
+        // boundary for generic clients, including the first launch after install.
+        int waitedMs = 0;
+        while (!mAudioCallbackSeen.load(std::memory_order_acquire) &&
+               mRunning.load(std::memory_order_acquire) &&
+               waitedMs < kAudioReadyTimeoutMs) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kAudioReadyPollMs));
+            waitedMs += kAudioReadyPollMs;
+        }
+
+        if (!mAudioCallbackSeen.load(std::memory_order_acquire)) {
+            LOGE("Timed out waiting for first Oboe audio callback");
+            mRunning.store(false, std::memory_order_release);
+            mStream->requestStop();
+            mStream->close();
+            mStream.reset();
+            stopAmy();
+            return -ETIMEDOUT;
+        }
+
+        if (!mRunning.load(std::memory_order_acquire)) {
+            LOGE("Oboe stream stopped before AMY socket became ready");
+            mStream->close();
+            mStream.reset();
+            stopAmy();
+            return -EIO;
+        }
+
+        amy_unix_socket_server_t *socket = nullptr;
+        int socketResult = amy_unix_socket_start(&socket, socketPath);
+        if (socketResult != 0) {
+            mRunning.store(false, std::memory_order_release);
+            mStream->requestStop();
+            mStream->close();
+            mStream.reset();
+            stopAmy();
+            return socketResult;
+        }
+        mSocket.store(socket, std::memory_order_release);
 
         LOGI("AMY/Oboe started: %d Hz, %d-frame AMY blocks, socket=%s",
              AMY_SAMPLE_RATE, AMY_BLOCK_SIZE, socketPath);
@@ -135,6 +176,7 @@ public:
         }
 
         cleanupSocketAndAmy();
+        mAudioCallbackSeen.store(false, std::memory_order_release);
         mBlock = nullptr;
         mBlockFrame = AMY_BLOCK_SIZE;
     }
@@ -149,6 +191,8 @@ public:
                         static_cast<size_t>(numFrames) * AMY_NCHANS * sizeof(int16_t));
             return oboe::DataCallbackResult::Stop;
         }
+
+        mAudioCallbackSeen.store(true, std::memory_order_release);
 
         int32_t outputFrame = 0;
         while (outputFrame < numFrames) {
@@ -185,10 +229,12 @@ public:
 
 private:
     void drainCommands() {
-        if (mSocket == nullptr) return;
+        amy_unix_socket_server_t *socket = mSocket.load(std::memory_order_acquire);
+        if (socket == nullptr) return;
+
         char command[MAX_MESSAGE_LEN];
         for (int count = 0; count < kMaxCommandsPerBlock; ++count) {
-            int length = amy_unix_socket_receive(mSocket, command, sizeof(command));
+            int length = amy_unix_socket_receive(socket, command, sizeof(command));
             if (length <= 0) break;
             amy_add_message(command);
         }
@@ -202,23 +248,25 @@ private:
     }
 
     void cleanupSocketAndAmy() {
-        if (mSocket != nullptr) {
-            uint32_t overruns = amy_unix_socket_queue_overruns(mSocket);
-            uint32_t oversize = amy_unix_socket_oversize_packets(mSocket);
-            uint32_t rejected = amy_unix_socket_rejected_peers(mSocket);
+        amy_unix_socket_server_t *socket =
+            mSocket.exchange(nullptr, std::memory_order_acq_rel);
+        if (socket != nullptr) {
+            uint32_t overruns = amy_unix_socket_queue_overruns(socket);
+            uint32_t oversize = amy_unix_socket_oversize_packets(socket);
+            uint32_t rejected = amy_unix_socket_rejected_peers(socket);
             if (overruns || oversize || rejected) {
                 LOGE("AMY socket diagnostics: overruns=%u oversize=%u rejected=%u",
                      overruns, oversize, rejected);
             }
-            amy_unix_socket_stop(mSocket);
-            mSocket = nullptr;
+            amy_unix_socket_stop(socket);
         }
         stopAmy();
     }
 
     std::atomic<bool> mRunning{false};
+    std::atomic<bool> mAudioCallbackSeen{false};
     bool mAmyStarted = false;
-    amy_unix_socket_server_t *mSocket = nullptr;
+    std::atomic<amy_unix_socket_server_t *> mSocket{nullptr};
     std::shared_ptr<oboe::AudioStream> mStream;
     int16_t *mBlock = nullptr;
     int32_t mBlockFrame = AMY_BLOCK_SIZE;

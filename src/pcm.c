@@ -2,6 +2,7 @@
 
 #include "amy.h"
 #include "transfer.h"
+#include "pcm_stream_internal.h"
 
 #ifdef __EMSCRIPTEN__
 #include "emscripten.h"
@@ -124,6 +125,10 @@ memorypcm_preset_t * get_preset_for_preset_number(uint16_t preset_number,
 }
 
 const int16_t *pcm_get_sample_ram_for_preset(uint16_t preset_number, uint32_t *length) {
+    if (pcm_stream_preset_registered(preset_number)) {
+        if (length != NULL) *length = 0;
+        return NULL;
+    }
     memorypcm_preset_t rom_local;
     memorypcm_preset_t *preset = get_preset_for_preset_number(preset_number, &rom_local);
     if (length != NULL) {
@@ -208,6 +213,11 @@ bool pcm_loop_config_allowed(uint16_t osc, uint16_t mode, uint16_t preset_number
     // mode means nothing outside PCM, so don't second-guess other waves.
     if (synth[osc]->wave != PCM) return true;
     if (!mode_is_looping(mode)) return true;
+    if (pcm_stream_preset_registered(preset_number)) {
+        fprintf(stderr, "amy: appendable PCM stream preset %d cannot use PCM_LOOP modes; "
+                        "queue loop data again from the producer instead\n", preset_number);
+        return false;
+    }
     const char *filename = NULL;
     if (!preset_is_file(preset_number, &filename)) return true;
     if (mode_is_the_new_part) {
@@ -546,6 +556,7 @@ static SAMPLE render_pcm_stretch(SAMPLE *buf, uint16_t osc, memorypcm_preset_t *
 }
 
 void pcm_note_on(uint16_t osc) {
+    if (pcm_stream_note_on(osc)) return;
     if(AMY_IS_SET(synth[osc]->preset)) {
         memorypcm_preset_t rom_local;
         memorypcm_preset_t *preset =
@@ -620,6 +631,7 @@ void pcm_mod_trigger(uint16_t osc) {
 
 
 void pcm_note_off(uint16_t osc) {
+    if (pcm_stream_note_off(osc)) return;
     if(AMY_IS_SET(synth[osc]->preset)) {
         if (msynth[osc]->state == PCM_PLAY_STOP
             || msynth[osc]->state == PCM_LOOP_STOP) {
@@ -669,6 +681,8 @@ uint32_t fill_sample_from_file(memorypcm_preset_t *preset_p, uint32_t frames_nee
 }
 
 SAMPLE render_pcm(SAMPLE* buf, uint16_t osc) {
+    SAMPLE stream_max = 0;
+    if (pcm_stream_render(buf, osc, &stream_max)) return stream_max;
     if(AMY_IS_SET(synth[osc]->preset)) {
         SAMPLE max_value = 0;
         memorypcm_preset_t rom_local;
@@ -746,7 +760,7 @@ SAMPLE render_pcm(SAMPLE* buf, uint16_t osc) {
                         msynth[osc]->loopstart = preset->loopstart;
                         msynth[osc]->loopend = preset->loopend;
                     }
-                    //fprintf(stderr, "time %.3f sample %d LOOP: old_index %d new_index %d phase 0x%lx\n", amy_global.time, i, base_index, base_index_base, phase);
+                    //fprintf(stderr, "time %.3f sample %d LOOP: old_index %d new_index %d phase 0x%lx\n", amy_global.time, i, base_index, sample_length, base_index_base, phase);
                     base_index = base_index_base;
                 } else if(base_index >= sample_length) { // end
                     synth[osc]->status = SYNTH_OFF;// is this right?
@@ -908,6 +922,7 @@ int16_t * pcm_load(uint16_t preset_number, uint32_t length, uint32_t samplerate,
 }
 
 void pcm_unload_preset(uint16_t preset_number) {
+    pcm_stream_unregister_preset(preset_number);
     // run through the LL looking for the preset
     memorypcm_ll_t **preset_pointer = &memorypcm_ll_start;
     while(*preset_pointer != NULL) {
@@ -927,6 +942,7 @@ void pcm_unload_preset(uint16_t preset_number) {
 }
 
 void pcm_unload_all_presets() {
+    pcm_stream_unregister_all();
     memorypcm_ll_t *preset_pointer = memorypcm_ll_start;
     while(preset_pointer != NULL) {
         memorypcm_ll_t *next_pointer = preset_pointer->next;

@@ -9,11 +9,10 @@
 #include <cstring>
 #include <memory>
 #include <mutex>
-#include <string>
 
 extern "C" {
 #include "amy.h"
-#include "amy_socket_transport.h"
+#include "amy_unix_socket.h"
 }
 
 #define LOG_TAG "AmyAndroid"
@@ -56,15 +55,8 @@ public:
         amy_start(config);
         mAmyStarted = true;
 
-        mSocket = amy_socket_server_create();
-        if (mSocket == nullptr) {
-            stopAmy();
-            return -ENOMEM;
-        }
-        int socketResult = amy_socket_server_start(mSocket, socketPath);
+        int socketResult = amy_unix_socket_start(&mSocket, socketPath);
         if (socketResult != 0) {
-            amy_socket_server_destroy(mSocket);
-            mSocket = nullptr;
             stopAmy();
             return socketResult;
         }
@@ -139,7 +131,8 @@ public:
         int32_t numFrames) override {
         int16_t *output = static_cast<int16_t *>(audioData);
         if (!mRunning.load(std::memory_order_acquire)) {
-            std::memset(output, 0, static_cast<size_t>(numFrames) * AMY_NCHANS * sizeof(int16_t));
+            std::memset(output, 0,
+                        static_cast<size_t>(numFrames) * AMY_NCHANS * sizeof(int16_t));
             return oboe::DataCallbackResult::Stop;
         }
 
@@ -179,9 +172,9 @@ public:
 private:
     void drainCommands() {
         if (mSocket == nullptr) return;
-        char command[AMY_SOCKET_MAX_MESSAGE];
+        char command[MAX_MESSAGE_LEN];
         for (int count = 0; count < kMaxCommandsPerBlock; ++count) {
-            int length = amy_socket_server_pop(mSocket, command, sizeof(command));
+            int length = amy_unix_socket_receive(mSocket, command, sizeof(command));
             if (length <= 0) break;
             amy_add_message(command);
         }
@@ -196,9 +189,14 @@ private:
 
     void cleanupSocketAndAmy() {
         if (mSocket != nullptr) {
-            uint32_t dropped = amy_socket_server_dropped(mSocket);
-            if (dropped != 0) LOGE("AMY socket dropped %u messages", dropped);
-            amy_socket_server_destroy(mSocket);
+            uint32_t overruns = amy_unix_socket_queue_overruns(mSocket);
+            uint32_t oversize = amy_unix_socket_oversize_packets(mSocket);
+            uint32_t rejected = amy_unix_socket_rejected_peers(mSocket);
+            if (overruns || oversize || rejected) {
+                LOGE("AMY socket diagnostics: overruns=%u oversize=%u rejected=%u",
+                     overruns, oversize, rejected);
+            }
+            amy_unix_socket_stop(mSocket);
             mSocket = nullptr;
         }
         stopAmy();
@@ -206,7 +204,7 @@ private:
 
     std::atomic<bool> mRunning{false};
     bool mAmyStarted = false;
-    amy_socket_server_t *mSocket = nullptr;
+    amy_unix_socket_server_t *mSocket = nullptr;
     std::shared_ptr<oboe::AudioStream> mStream;
     int16_t *mBlock = nullptr;
     int32_t mBlockFrame = AMY_BLOCK_SIZE;

@@ -50,6 +50,7 @@ amy_sources = [
     "parse.c",
     "patches.c",
     "pcm.c",
+    "pcm_stream.c",
     "sequencer.c",
     "transfer.c",
 ]

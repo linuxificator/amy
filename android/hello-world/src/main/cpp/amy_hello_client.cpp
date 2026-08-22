@@ -54,9 +54,10 @@ int play_c_scale(const char *path) {
     int fd = connect_with_retry(path);
     if (fd < 0) return fd;
 
-    // Raw oscillator 0, sine wave, clearly audible while retaining headroom.
+    // Raw oscillator 0, sine wave. V is AMY's global output gain, not an
+    // oscillator-local amplitude; use 2.0 here so the hello-world is easy to hear.
     // Every packet is an ordinary AMY wire command sent through amy.sock.
-    int rc = send_wire(fd, "v0w0V0.80Z");
+    int rc = send_wire(fd, "v0w0V2.0Z");
     if (rc < 0) {
         close(fd);
         return rc;

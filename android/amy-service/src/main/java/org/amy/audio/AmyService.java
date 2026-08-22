@@ -13,8 +13,8 @@ import java.io.IOException;
  * Unexported same-UID service hosting native AMY + Oboe in a separate process.
  *
  * Musical control never crosses JNI. The host opens the private pathname Unix
- * socket and sends newline-delimited AMY wire messages. JNI is only used to
- * start and stop the native engine with the validated socket pathname.
+ * SOCK_SEQPACKET socket and sends one AMY wire message per packet. JNI is only
+ * used to start and stop the native engine with the validated socket pathname.
  */
 public final class AmyService extends Service {
     private static final String TAG = "AmyService";
@@ -27,6 +27,7 @@ public final class AmyService extends Service {
     }
 
     private boolean running;
+    private String runningSocketPath;
 
     private static native int nativeStart(String socketPath);
     private static native void nativeStop();
@@ -65,9 +66,18 @@ public final class AmyService extends Service {
             return START_NOT_STICKY;
         }
 
+        // Starting the same service again is normal Android lifecycle behavior.
+        // Do not tear down an active audio engine and disconnect its socket
+        // client merely because another equivalent startService() arrived.
+        if (running && socketPath.equals(runningSocketPath)) {
+            Log.i(TAG, "AMY already running on private socket " + socketPath);
+            return START_NOT_STICKY;
+        }
+
         if (running) {
             nativeStop();
             running = false;
+            runningSocketPath = null;
         }
 
         int result = nativeStart(socketPath);
@@ -78,6 +88,7 @@ public final class AmyService extends Service {
         }
 
         running = true;
+        runningSocketPath = socketPath;
         Log.i(TAG, "AMY listening on private socket " + socketPath);
         return START_NOT_STICKY;
     }
@@ -100,6 +111,7 @@ public final class AmyService extends Service {
         if (running) {
             nativeStop();
             running = false;
+            runningSocketPath = null;
         }
         super.onDestroy();
     }

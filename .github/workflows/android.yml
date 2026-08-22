@@ -20,7 +20,7 @@ jobs:
       - name: Build and run private Unix socket test
         run: bash tests/run_amy_unix_socket_test.sh
 
-  android-aar:
+  android-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -45,9 +45,9 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build AMY Android AAR
+      - name: Build AMY Android AAR and hello-world APK
         working-directory: android
-        run: gradle :amy-service:assembleDebug --stacktrace
+        run: gradle :amy-service:assembleDebug :hello-world:assembleDebug --stacktrace
 
       - name: Upload AMY Android AAR
         uses: actions/upload-artifact@v4
@@ -55,3 +55,33 @@ jobs:
           name: amy-service-debug-aar
           path: android/amy-service/build/outputs/aar/amy-service-debug.aar
           if-no-files-found: error
+
+      - name: Upload AMY hello-world APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-hello-world-debug-apk
+          path: android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
+          if-no-files-found: error
+
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Emulator end-to-end smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            adb install -r hello-world/build/outputs/apk/debug/hello-world-debug.apk
+            adb logcat -c
+            adb shell am start -W -n org.amy.hello/.MainActivity
+            sleep 8
+            adb logcat -d -s AmyAndroid:I AmyService:I AmyHelloWorld:I '*:S' | tee /tmp/amy-hello.log
+            grep -q "AMY/Oboe started" /tmp/amy-hello.log
+            grep -q "C scale complete" /tmp/amy-hello.log

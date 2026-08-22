@@ -3,6 +3,8 @@ package org.amy.audio;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.os.IBinder;
 import android.util.Log;
 
@@ -14,7 +16,7 @@ import java.io.IOException;
  *
  * Musical control never crosses JNI. The host opens the private pathname Unix
  * SOCK_SEQPACKET socket and sends one AMY wire message per packet. JNI is only
- * used to start and stop the native engine with the validated socket pathname.
+ * used to start/stop the native engine and report its actual Oboe output device.
  */
 public final class AmyService extends Service {
     private static final String TAG = "AmyService";
@@ -30,6 +32,7 @@ public final class AmyService extends Service {
     private String runningSocketPath;
 
     private static native int nativeStart(String socketPath);
+    private static native int nativeGetOutputDeviceId();
     private static native void nativeStop();
 
     /** Start the private AMY process using filesDir/amy.sock. */
@@ -90,7 +93,53 @@ public final class AmyService extends Service {
         running = true;
         runningSocketPath = socketPath;
         Log.i(TAG, "AMY listening on private socket " + socketPath);
+        logOutputRoute(nativeGetOutputDeviceId());
         return START_NOT_STICKY;
+    }
+
+    private void logOutputRoute(int deviceId) {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager == null) {
+            Log.i(TAG, "AMY output route: deviceId=" + deviceId + " (AudioManager unavailable)");
+            return;
+        }
+
+        for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (device.getId() == deviceId) {
+                Log.i(TAG, "AMY output route: deviceId=" + deviceId
+                        + " type=" + audioDeviceTypeName(device.getType())
+                        + " product=" + String.valueOf(device.getProductName()));
+                return;
+            }
+        }
+
+        Log.i(TAG, "AMY output route: deviceId=" + deviceId
+                + " type=UNRESOLVED_DEFAULT_OR_DEVICE");
+    }
+
+    private static String audioDeviceTypeName(int type) {
+        switch (type) {
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+                return "BUILTIN_EARPIECE";
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
+                return "BUILTIN_SPEAKER";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
+                return "WIRED_HEADSET";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+                return "WIRED_HEADPHONES";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
+                return "BLUETOOTH_SCO";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+                return "BLUETOOTH_A2DP";
+            case AudioDeviceInfo.TYPE_HDMI:
+                return "HDMI";
+            case AudioDeviceInfo.TYPE_USB_DEVICE:
+                return "USB_DEVICE";
+            case AudioDeviceInfo.TYPE_USB_ACCESSORY:
+                return "USB_ACCESSORY";
+            default:
+                return "TYPE_" + type;
+        }
     }
 
     private String validatePrivateSocketPath(String requested) throws IOException {

@@ -1,0 +1,52 @@
+name: Android AMY
+
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/**"
+      - ".github/workflows/android.yml"
+  push:
+    branches:
+      - feature/android-unix-socket
+    paths:
+      - "android/**"
+      - "src/**"
+      - ".github/workflows/android.yml"
+
+jobs:
+  socket-transport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run host socket test
+        run: make -C android host-test
+
+  android-aar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build AMY Android AAR
+        working-directory: android
+        run: gradle :amy-service:assembleDebug --stacktrace

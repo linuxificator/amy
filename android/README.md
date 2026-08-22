@@ -1,12 +1,12 @@
 # AMY Android Oboe service
 
-This directory builds an Android AAR that hosts AMY in an unexported `:amy`
-service process. The service owns Oboe/AAudio output and receives native AMY
-wire messages through the private pathname Unix transport implemented by
+This directory builds a generic Android AAR that hosts AMY in an unexported
+`:amy` service process. The service owns Oboe/AAudio output and receives native
+AMY wire messages through the private pathname Unix transport implemented by
 `src/amy_unix_socket.[ch]`.
 
 ```text
-Qt/Python process
+Android client process
     |
     | AF_UNIX / SOCK_SEQPACKET
     | <app filesDir>/amy.sock
@@ -23,10 +23,16 @@ Android :amy service process
           AAudio
 ```
 
-The AAR is intended to be packaged inside the same APK as the Qt application.
+The AAR is intended to be embedded by an Android application that wants to use
+AMY as its local synth engine. The client can be written with the Android SDK,
+Kotlin/Java, native code, Qt, another framework, or any other environment able
+to start the service and use an Android Unix-domain `SOCK_SEQPACKET` socket.
+AMY itself has no dependency on the client UI framework.
+
 The service declaration uses `android:exported="false"` and
-`android:process=":amy"`, so the two processes have the same application UID
-but separate process heaps and runtimes.
+`android:process=":amy"`. Consequently the service runs in a separate process
+from the client while remaining in the same Android application package and
+under the same application UID.
 
 The service only accepts the exact pathname `<Context.getFilesDir()>/amy.sock`.
 The native transport creates that node mode `0600` and additionally verifies
@@ -56,9 +62,8 @@ packets and passes them to `amy_add_message()`. The socket thread itself never
 calls AMY and never participates in audio rendering.
 
 AMY is started with its internal platform audio disabled and with AMY rendering
-owned by the Oboe callback thread. The Android configuration reserves 16
-Karplus-Strong oscillators so the Omnichord Physical Strings program has the
-same intended capacity as the ESP32-P4 target.
+owned by the Oboe callback thread. The current Android build configuration
+reserves 16 Karplus-Strong oscillators.
 
 ## JNI boundary
 
@@ -67,12 +72,14 @@ stop AMY/Oboe with the validated socket pathname. Notes, patches, sequencer
 commands and other musical control do not cross JNI; they use the unchanged AMY
 wire protocol through `amy.sock`.
 
-That keeps the application-level architecture symmetric:
+The client-facing architecture is therefore deliberately transport-oriented:
 
 ```text
-Raspberry Pi: Qt/Python -> UART       -> ESP32-P4 AMY
-Android:      Qt/Python -> amy.sock   -> local AMY/Oboe service
+client application -> amy.sock -> AMY/Oboe service
 ```
+
+A client does not need AMY-specific JNI bindings. It only needs to start the
+service and exchange AMY wire packets over the private socket.
 
 ## Socket client contract
 
@@ -88,9 +95,34 @@ n60l0i2Z
 Do not add stream framing or depend on newline boundaries. Packet boundaries
 are preserved by `SOCK_SEQPACKET`.
 
+The pathname also serves as the engine readiness boundary. `amy.sock` is not
+created until Oboe has started and the realtime audio callback has executed at
+least once. A client may therefore retry `connect()` while the service starts;
+once `connect()` succeeds it may begin sending AMY wire packets immediately.
+No fixed Android-startup sleep is required.
+
 The socket is bidirectional. The Android engine currently consumes ordinary AMY
 wire commands; the existing `amy_unix_socket_send()` path is ready for compact
-introspection/status replies when the introspection branch is integrated.
+introspection/status replies when that functionality is integrated.
+
+## Client integration
+
+A client application needs to:
+
+1. package the `amy-service` AAR/module in the Android application;
+2. start `org.amy.audio.AmyService` while synthesis is required;
+3. obtain the application's actual private files directory rather than
+   hard-code `/data/user/...`;
+4. retry an `AF_UNIX` / `SOCK_SEQPACKET` connection to `<filesDir>/amy.sock`
+   until the service publishes its ready socket;
+5. send one ordinary AMY wire message per packet;
+6. optionally receive response packets over the same bidirectional socket;
+7. stop and reconnect cleanly across Android application/audio lifecycle
+   events.
+
+The transport deliberately does not prescribe a programming language or UI
+framework. A minimal example client is provided separately by the Android
+hello-world application.
 
 ## Building the AAR
 
@@ -111,7 +143,7 @@ cd android
 gradle :amy-service:assembleDebug
 ```
 
-The current build targets `arm64-v8a`. Output is below:
+The production Android service build targets `arm64-v8a`. Output is below:
 
 ```text
 android/amy-service/build/outputs/aar/
@@ -119,7 +151,7 @@ android/amy-service/build/outputs/aar/
 
 ## Tests
 
-The already-existing private socket regression test is:
+The private socket regression test is:
 
 ```bash
 bash tests/run_amy_unix_socket_test.sh
@@ -133,23 +165,11 @@ existing non-socket path.
 AAR/NDK/Oboe build. The earlier `.github/workflows/android-unix-socket.yml`
 continues to isolate the transport regression itself.
 
-## Qt integration
-
-The Qt/Python-side Android adapter belongs in `LB_Omnichord`, not in AMY. It
-needs to:
-
-1. start `org.amy.audio.AmyService` while the activity is foreground;
-2. obtain the app's actual private files directory rather than hard-code
-   `/data/user/...`;
-3. connect a `SOCK_SEQPACKET` Unix socket to `<filesDir>/amy.sock`;
-4. send exactly the same AMY wire payloads currently sent over UART;
-5. stop/reconnect cleanly across Android activity/audio lifecycle events.
-
 ## Hardware-test items
 
 The first device tests should measure:
 
-1. touch-to-audio latency;
+1. command-to-audio latency;
 2. negotiated Oboe callback/device buffer sizes;
 3. xruns during patch changes and heavy reverb/delay loads;
 4. suspend/resume and audio-device changes;

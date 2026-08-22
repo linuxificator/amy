@@ -84,7 +84,7 @@ check-c-api:
 	$(PYTHON) scripts/gen_pcm_presets_js.py --check
 
 SOURCES += src/algorithms.c src/amy.c src/envelope.c src/examples.c src/parse.c \
-	src/filters.c src/oscillators.c src/pcm.c src/interp_partials.c src/custom.c \
+	src/filters.c src/oscillators.c src/pcm.c src/pcm_stream.c src/interp_partials.c src/custom.c \
 	src/delay.c src/log2_exp2.c src/patches.c src/transfer.c src/sequencer.c \
 	src/libminiaudio-audio.c src/instrument.c src/amy_midi.c src/api.c src/midi_mappings.c \
         src/cv_trigger.c
@@ -127,7 +127,7 @@ CTESTS = tests/test_clock_wrap tests/test_sequencer_active tests/test_sequencer_
          tests/test_bus_config tests/test_patch_slots \
          tests/test_synth_readout tests/test_log2_lut tests/test_clone_on_grow \
          tests/test_timebase_reset tests/test_osc_free_on_release \
-         tests/test_voice_osc_range
+         tests/test_voice_osc_range tests/test_pcm_stream
 
 # Static pattern rules, so these win over the generic %.o: %.c above (which
 # would compile without -Isrc and fail to find amy.h).

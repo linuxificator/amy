@@ -35,7 +35,7 @@ jobs:
     - name: Build and test
       env:
         AMY_TEST_THRESHOLD_DB: "-70.0"
-      run: make test
+      run: make ctest && make test
 
   web:
     # Build the emscripten / WASM target (`make web`) so breaks there are caught.

@@ -57,3 +57,10 @@ jobs:
       - name: Build AMY Android AAR
         working-directory: android
         run: gradle :amy-service:assembleDebug --stacktrace
+
+      - name: Upload AMY Android AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-service-debug-aar
+          path: android/amy-service/build/outputs/aar/amy-service-debug.aar
+          if-no-files-found: error

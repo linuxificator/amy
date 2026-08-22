@@ -32,7 +32,6 @@ set(AMY_SOURCES
 add_library(amy_android SHARED
     amy_android.cpp
     amy_android_profile.cpp
-    amy_android_daisy_alloc.c
     ${AMY_SOURCES}
 )
 
@@ -45,10 +44,9 @@ target_include_directories(amy_android PRIVATE
 # owns both the audio and MIDI device layers, so no Daisy device implementation
 # is linked: AMY_NO_MINIAUDIO leaves Oboe as the sole audio backend and
 # AMY_HOST_MIDI leaves run_midi/stop_midi/midi_out to amy_android.cpp.
-# pcm.c also maps its allocation helpers to Daisy qspi_malloc/qspi_free when
-# AMY_DAISY is set. Android keeps that compile profile but provides a tiny
-# libc-backed compatibility shim; force its declarations into C translation
-# units so pcm.c remains valid C11 without modifying AMY's platform code.
+# delay.c already provides qspi_malloc/qspi_free under AMY_DAISY. pcm.c needs
+# declarations for those helpers, so force only the compatibility declarations
+# into C translation units; do not link a second allocator implementation.
 target_compile_definitions(amy_android PRIVATE
     AMY_ANDROID=1
     AMY_DAISY=1

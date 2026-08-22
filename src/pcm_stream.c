@@ -16,8 +16,6 @@
 #define PCM_STREAM_STORE32(p, v) (*(p) = (v))
 #endif
 
-#define PCM_STREAM_Q16_ONE 65536u
-
 static amy_pcm_stream_t *pcm_streams = NULL;
 
 static amy_pcm_stream_t *stream_for_preset(uint16_t preset_number) {
@@ -211,9 +209,9 @@ static amy_pcm_stream_chunk_t *current_chunk(amy_pcm_stream_t *stream) {
         if (state != AMY_PCM_STREAM_CHUNK_PLAYING) return NULL;
 
         uint64_t end_q16 = ((uint64_t)chunk->frames) << 16;
-        if ((uint64_t)stream->phase_q16 < end_q16) return chunk;
+        if (stream->phase_q16 < end_q16) return chunk;
 
-        stream->phase_q16 -= (uint32_t)end_q16;
+        stream->phase_q16 -= end_q16;
         mark_current_done(stream, chunk, slot);
     }
     return NULL;
@@ -324,8 +322,8 @@ bool pcm_stream_render(SAMPLE *buf, uint16_t osc, SAMPLE *max_value_out) {
             break;
         }
 
-        uint32_t base_frame = stream->phase_q16 >> 16;
-        uint32_t frac_q16 = stream->phase_q16 & 0xffffu;
+        uint32_t base_frame = (uint32_t)(stream->phase_q16 >> 16);
+        uint32_t frac_q16 = (uint32_t)(stream->phase_q16 & 0xffffu);
         LUTSAMPLE b = stream_read_frame(stream, chunk, synth[osc]->wave, base_frame);
         LUTSAMPLE c = next_frame_or_hold(stream, chunk, synth[osc]->wave, base_frame, b);
         SAMPLE frac = (SAMPLE)frac_q16 << (S_FRAC_BITS - 16);

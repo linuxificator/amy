@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "org.amy.audio"
     compileSdk = 36
+    ndkVersion = "27.0.12077973"
 
     defaultConfig {
         minSdk = 26

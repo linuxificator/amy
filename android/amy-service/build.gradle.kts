@@ -10,8 +10,11 @@ android {
     defaultConfig {
         minSdk = 26
 
+        // arm64-v8a is the production target. x86_64 is included on this
+        // hello-world branch so CI can run the same AMY/Oboe service in the
+        // hardware-accelerated Android emulator.
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
 
         externalNativeBuild {

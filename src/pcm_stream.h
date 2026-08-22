@@ -58,7 +58,7 @@ typedef struct amy_pcm_stream_t {
     float midinote;
 
     // Consumer-only state. Hosts should treat these fields as opaque.
-    uint32_t phase_q16;
+    uint64_t phase_q16;
     struct amy_pcm_stream_t *next;
 } amy_pcm_stream_t;
 

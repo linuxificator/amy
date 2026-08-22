@@ -95,6 +95,12 @@ n60l0i2Z
 Do not add stream framing or depend on newline boundaries. Packet boundaries
 are preserved by `SOCK_SEQPACKET`.
 
+The pathname also serves as the engine readiness boundary. `amy.sock` is not
+created until Oboe has started and the realtime audio callback has executed at
+least once. A client may therefore retry `connect()` while the service starts;
+once `connect()` succeeds it may begin sending AMY wire packets immediately.
+No fixed Android-startup sleep is required.
+
 The socket is bidirectional. The Android engine currently consumes ordinary AMY
 wire commands; the existing `amy_unix_socket_send()` path is ready for compact
 introspection/status replies when that functionality is integrated.
@@ -107,7 +113,8 @@ A client application needs to:
 2. start `org.amy.audio.AmyService` while synthesis is required;
 3. obtain the application's actual private files directory rather than
    hard-code `/data/user/...`;
-4. connect an `AF_UNIX` / `SOCK_SEQPACKET` socket to `<filesDir>/amy.sock`;
+4. retry an `AF_UNIX` / `SOCK_SEQPACKET` connection to `<filesDir>/amy.sock`
+   until the service publishes its ready socket;
 5. send one ordinary AMY wire message per packet;
 6. optionally receive response packets over the same bidirectional socket;
 7. stop and reconnect cleanly across Android application/audio lifecycle

@@ -22,7 +22,7 @@ gamma_manifest = os.path.join('sounds', 'gamma9001', 'manifest.json')
 gamma_drums_bin_c = os.path.join('build', 'drums_bin.c')
 if os.path.exists(gamma_manifest):
 	if not os.path.exists(gamma_drums_bin_c) or \
-			os.path.getmtime(gamma_manifest) < os.path.getmtime(gamma_manifest):
+			os.path.getmtime(gamma_drums_bin_c) < os.path.getmtime(gamma_manifest):
 		subprocess.check_call([sys.executable, '-m', 'amy.headers', 'gamma9001'])
 	sources.append(gamma_drums_bin_c)
 	comp_args.append("-DGAMMA9001")

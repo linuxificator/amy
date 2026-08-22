@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 # the c++ extension module
-sources = ['algorithms.c', 'amy.c', 'delay.c', 'envelope.c', 'filters.c', 'parse.c', 'sequencer.c', 'transfer.c', 'midi_mappings.c', 'custom.c', 'patches.c', 'libminiaudio-audio.c', 'oscillators.c', 'interp_partials.c', 'pcm.c', 'pyamy.c', 'log2_exp2.c', 'instrument.c', 'amy_midi.c', 'api.c', 'cv_trigger.c']
+sources = ['algorithms.c', 'amy.c', 'delay.c', 'envelope.c', 'filters.c', 'parse.c', 'sequencer.c', 'transfer.c', 'midi_mappings.c', 'custom.c', 'patches.c', 'libminiaudio-audio.c', 'oscillators.c', 'interp_partials.c', 'pcm.c', 'pcm_stream.c', 'pyamy.c', 'log2_exp2.c', 'instrument.c', 'amy_midi.c', 'api.c', 'cv_trigger.c']
 
 for i in range(len(sources)):
 	sources[i] = "src/"+sources[i]
@@ -22,7 +22,7 @@ gamma_manifest = os.path.join('sounds', 'gamma9001', 'manifest.json')
 gamma_drums_bin_c = os.path.join('build', 'drums_bin.c')
 if os.path.exists(gamma_manifest):
 	if not os.path.exists(gamma_drums_bin_c) or \
-			os.path.getmtime(gamma_drums_bin_c) < os.path.getmtime(gamma_manifest):
+			os.path.getmtime(gamma_manifest) < os.path.getmtime(gamma_manifest):
 		subprocess.check_call([sys.executable, '-m', 'amy.headers', 'gamma9001'])
 	sources.append(gamma_drums_bin_c)
 	comp_args.append("-DGAMMA9001")

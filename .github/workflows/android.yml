@@ -77,11 +77,12 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
           script: |
-            adb install -r hello-world/build/outputs/apk/debug/hello-world-debug.apk
+            adb install -r android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
             adb logcat -c
             adb shell am start -W -n org.amy.hello/.MainActivity
-            sleep 8
+            sleep 10
             adb logcat -d -s AmyAndroid:I AmyService:I AmyHelloWorld:I '*:S' | tee /tmp/amy-hello.log
             grep -q "AMY/Oboe started" /tmp/amy-hello.log
             grep -q "C scale complete" /tmp/amy-hello.log

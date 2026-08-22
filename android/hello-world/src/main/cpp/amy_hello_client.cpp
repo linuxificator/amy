@@ -54,13 +54,17 @@ int play_c_scale(const char *path) {
     int fd = connect_with_retry(path);
     if (fd < 0) return fd;
 
-    // Raw oscillator 0, sine wave, moderate volume. Every subsequent packet is
-    // an ordinary AMY wire command sent through the private amy.sock transport.
-    int rc = send_wire(fd, "v0w0V0.30Z");
+    // Raw oscillator 0, sine wave, clearly audible while retaining headroom.
+    // Every packet is an ordinary AMY wire command sent through amy.sock.
+    int rc = send_wire(fd, "v0w0V0.80Z");
     if (rc < 0) {
         close(fd);
         return rc;
     }
+
+    // On a completely fresh AMY instance, commit oscillator setup before the
+    // first note-on instead of allowing both commands into the same first drain.
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
 
     static constexpr int notes[] = {60, 62, 64, 65, 67, 69, 71, 72};
     char wire[64];

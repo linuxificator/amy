@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "amy-android"
 include(":amy-service")
+include(":hello-world")

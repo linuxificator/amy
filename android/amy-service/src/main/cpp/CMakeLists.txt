@@ -29,18 +29,14 @@ set(AMY_SOURCES
     ${AMY_SRC}/cv_trigger.c
 )
 
+# The only native library built for Android is the independent AMY/Oboe
+# service implementation. Client/framework code uses Android LocalSocket and
+# never links AMY or a Godot AMY GDExtension.
 add_library(amy_android SHARED
     amy_android.cpp
     amy_android_capture.cpp
     amy_android_profile.cpp
     ${AMY_SOURCES}
-)
-
-# Tiny client used by non-AMY processes (Godot in this proof of concept).
-# It contains no synth/audio engine: only one AF_UNIX/SOCK_SEQPACKET connection
-# to the separate :amy service process.
-add_library(amy_android_client SHARED
-    amy_android_client.cpp
 )
 
 target_include_directories(amy_android PRIVATE
@@ -68,12 +64,7 @@ target_compile_options(amy_android PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-O3;-Wall;-Wextra;-Wno-unused-parameter>
 )
 
-target_compile_options(amy_android_client PRIVATE
-    -O3 -Wall -Wextra -Wno-unused-parameter
-)
-
 target_compile_features(amy_android PRIVATE c_std_11 cxx_std_17)
-target_compile_features(amy_android_client PRIVATE cxx_std_17)
 
 target_link_libraries(amy_android PRIVATE
     oboe::oboe

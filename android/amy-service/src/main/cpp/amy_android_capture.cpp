@@ -150,7 +150,7 @@ AmyAndroidAudioCapture::~AmyAndroidAudioCapture() {
 }
 
 void AmyAndroidAudioCapture::beginCallback(int32_t numFrames) {
-    if (!mEnabled || mWriterReady || numFrames <= 0) {
+    if (!mEnabled || mWriterReady.load(std::memory_order_acquire) || numFrames <= 0) {
         mCallbackFrames = 0;
         return;
     }
@@ -189,10 +189,7 @@ void AmyAndroidAudioCapture::finishCallback(
     mCallbackFrames = 0;
 
     if (mFramesCaptured >= mTargetFrames) {
-        {
-            std::lock_guard<std::mutex> lock(mWriterMutex);
-            mWriterReady = true;
-        }
+        mWriterReady.store(true, std::memory_order_release);
         mWriterCv.notify_one();
     }
 }
@@ -203,7 +200,9 @@ void AmyAndroidAudioCapture::stop() {
 
     {
         std::lock_guard<std::mutex> lock(mWriterMutex);
-        if (mFramesCaptured > 0) mWriterReady = true;
+        if (mFramesCaptured > 0) {
+            mWriterReady.store(true, std::memory_order_release);
+        }
         mWriterStop = true;
     }
     mWriterCv.notify_one();
@@ -212,8 +211,11 @@ void AmyAndroidAudioCapture::stop() {
 
 void AmyAndroidAudioCapture::writerLoop() {
     std::unique_lock<std::mutex> lock(mWriterMutex);
-    mWriterCv.wait(lock, [this] { return mWriterReady || mWriterStop; });
-    const bool shouldWrite = mWriterReady && mFramesCaptured > 0;
+    mWriterCv.wait(lock, [this] {
+        return mWriterReady.load(std::memory_order_acquire) || mWriterStop;
+    });
+    const bool shouldWrite =
+        mWriterReady.load(std::memory_order_acquire) && mFramesCaptured > 0;
     lock.unlock();
 
     if (shouldWrite) writeCaptureFiles();

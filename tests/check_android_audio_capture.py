@@ -27,14 +27,15 @@ def read_wave(path):
 
 def levels(samples):
     if not samples:
-        return 0, 0.0, -200.0, -200.0
+        return 0, 0.0, -200.0, -200.0, 0
 
     peak = max(abs(int(sample)) for sample in samples)
     sum_squares = sum(int(sample) * int(sample) for sample in samples)
     rms = math.sqrt(sum_squares / len(samples))
     peak_dbfs = 20.0 * math.log10(peak / 32768.0) if peak else -200.0
     rms_dbfs = 20.0 * math.log10(rms / 32768.0) if rms else -200.0
-    return peak, rms, peak_dbfs, rms_dbfs
+    clipped = sum(sample in (-32768, 32767) for sample in samples)
+    return peak, rms, peak_dbfs, rms_dbfs, clipped
 
 
 def main():
@@ -46,8 +47,8 @@ def main():
     parser.add_argument(
         "--min-peak-dbfs",
         type=float,
-        default=-40.0,
-        help="fail when either capture peak is below this value (default: -40 dBFS)",
+        default=-6.0,
+        help="fail when either capture peak is below this value (default: -6 dBFS)",
     )
     args = parser.parse_args()
 
@@ -76,17 +77,17 @@ def main():
             mismatch_samples += 1
             max_abs_diff = max(max_abs_diff, difference)
 
-    amy_peak, amy_rms, amy_peak_dbfs, amy_rms_dbfs = levels(amy)
-    oboe_peak, oboe_rms, oboe_peak_dbfs, oboe_rms_dbfs = levels(oboe)
+    amy_peak, amy_rms, amy_peak_dbfs, amy_rms_dbfs, amy_clipped = levels(amy)
+    oboe_peak, oboe_rms, oboe_peak_dbfs, oboe_rms_dbfs, oboe_clipped = levels(oboe)
 
     print(f"frames={amy_frames} channels={amy_channels} sample_rate={amy_rate}")
     print(
         f"AMY : peak={amy_peak:5d} {amy_peak_dbfs:7.2f} dBFS  "
-        f"RMS={amy_rms:9.2f} {amy_rms_dbfs:7.2f} dBFS"
+        f"RMS={amy_rms:9.2f} {amy_rms_dbfs:7.2f} dBFS  clipped={amy_clipped}"
     )
     print(
         f"Oboe: peak={oboe_peak:5d} {oboe_peak_dbfs:7.2f} dBFS  "
-        f"RMS={oboe_rms:9.2f} {oboe_rms_dbfs:7.2f} dBFS"
+        f"RMS={oboe_rms:9.2f} {oboe_rms_dbfs:7.2f} dBFS  clipped={oboe_clipped}"
     )
     print(f"sample mismatches={mismatch_samples} max_abs_diff={max_abs_diff}")
 
@@ -101,6 +102,10 @@ def main():
     if oboe_peak_dbfs < args.min_peak_dbfs:
         raise SystemExit(
             f"Oboe peak {oboe_peak_dbfs:.2f} dBFS is below minimum {args.min_peak_dbfs:.2f} dBFS"
+        )
+    if amy_clipped or oboe_clipped:
+        raise SystemExit(
+            f"full-scale clipping detected: AMY={amy_clipped} Oboe={oboe_clipped} samples"
         )
 
 

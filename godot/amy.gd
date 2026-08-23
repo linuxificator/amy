@@ -335,7 +335,7 @@ func _format_list(val: Variant) -> String:
 ## Format a control coefficient value.
 ## Can be a number (treated as const), a string, an array, or a dictionary
 ## keyed by COEF_FIELDS name, e.g. {"const": 220, "mod0": 0.1}.
-func _format_ctrl(val: Variant, type: String = "") -> String:
+func _format_ctrl(val: Variant) -> String:
 	if val is float or val is int:
 		return _trunc(float(val))
 	if val is String:

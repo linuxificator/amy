@@ -24,16 +24,23 @@ public final class AmyService extends Service {
     public static final String EXTRA_SOCKET_PATH = "org.amy.audio.extra.SOCKET_PATH";
     public static final String DEFAULT_SOCKET_NAME = "amy.sock";
 
-    static {
-        System.loadLibrary("amy_android");
-    }
-
     private boolean running;
     private String runningSocketPath;
 
     private static native int nativeStart(String socketPath);
     private static native int nativeGetOutputDeviceId();
     private static native void nativeStop();
+
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        // Load the full AMY/Oboe library only after Android has instantiated
+        // this Service in the manifest-declared :amy process. Merely calling
+        // AmyService.start() from a framework/UI process must not load AMY
+        // into that process as a side effect of Java class initialization.
+        System.loadLibrary("amy_android");
+        Log.i(TAG, "AMY native library loaded in service process");
+    }
 
     /** Start the private AMY process using filesDir/amy.sock. */
     public static void start(Context context) {

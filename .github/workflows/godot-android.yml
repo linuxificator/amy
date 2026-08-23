@@ -36,6 +36,15 @@ jobs:
             "ndk;27.0.12077973" \
             "cmake;3.22.1"
 
+      - name: Enable KVM access when available
+        run: |
+          if [ -e /dev/kvm ]; then
+            sudo chmod 666 /dev/kvm
+            ls -l /dev/kvm
+          else
+            echo "No /dev/kvm on this runner; emulator will use software acceleration"
+          fi
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
@@ -56,6 +65,7 @@ jobs:
           unzip -l /tmp/amy-classes.jar | tee /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyService.class' /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyClient.class' /tmp/amy-classes.txt
+          grep -q 'org/amy/audio/AmyAndroidBridge.class' /tmp/amy-classes.txt
 
       - name: Install Godot 4.7.2 and export templates
         run: |
@@ -111,6 +121,7 @@ jobs:
           unzip -p "$ARM" classes.dex | strings > /tmp/amy-arm-dex.txt
           grep -q 'Lorg/amy/audio/AmyService;' /tmp/amy-arm-dex.txt
           grep -q 'Lorg/amy/audio/AmyClient;' /tmp/amy-arm-dex.txt
+          grep -q 'Lorg/amy/audio/AmyAndroidBridge;' /tmp/amy-arm-dex.txt
 
           unzip -l "$X86" | tee /tmp/amy-x86-apk.txt
           grep -q 'lib/x86_64/libgodot_android.so' /tmp/amy-x86-apk.txt
@@ -121,6 +132,7 @@ jobs:
           unzip -p "$X86" classes.dex | strings > /tmp/amy-x86-dex.txt
           grep -q 'Lorg/amy/audio/AmyService;' /tmp/amy-x86-dex.txt
           grep -q 'Lorg/amy/audio/AmyClient;' /tmp/amy-x86-dex.txt
+          grep -q 'Lorg/amy/audio/AmyAndroidBridge;' /tmp/amy-x86-dex.txt
 
           ARM_SIZE=$(stat -c%s "$ARM")
           X86_SIZE=$(stat -c%s "$X86")
@@ -145,31 +157,23 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
           script: |
-            set -u
             adb uninstall org.amy.godothello >/dev/null 2>&1 || true
             adb install godot/android-hello-world/build/godot-amy-hello-x86_64.apk
             adb logcat -c
             adb shell monkey -p org.amy.godothello 1 >/dev/null
             sleep 15
-
-            {
-              echo '===== PROCESS LIST ====='
-              adb shell ps -A | grep -E 'org\.amy\.godothello|amy' || true
-              echo
-              echo '===== PACKAGE ====='
-              adb shell dumpsys package org.amy.godothello || true
-              echo
-              echo '===== SERVICES ====='
-              adb shell dumpsys activity services org.amy.godothello || true
-              echo
-              echo '===== APP FILES ====='
-              adb shell run-as org.amy.godothello sh -c 'id; pwd; ls -la files; ls -la files/amy.sock 2>&1' || true
-              echo
-              echo '===== LOGCAT ====='
-              adb logcat -d
-            } | tee /tmp/amy-godot-diagnostics.txt
-
+            echo '===== PROCESS LIST =====' > /tmp/amy-godot-diagnostics.txt
+            adb shell ps -A >> /tmp/amy-godot-diagnostics.txt 2>&1 || true
+            echo '===== PACKAGE =====' >> /tmp/amy-godot-diagnostics.txt
+            adb shell dumpsys package org.amy.godothello >> /tmp/amy-godot-diagnostics.txt 2>&1 || true
+            echo '===== SERVICES =====' >> /tmp/amy-godot-diagnostics.txt
+            adb shell dumpsys activity services org.amy.godothello >> /tmp/amy-godot-diagnostics.txt 2>&1 || true
+            echo '===== APP FILES =====' >> /tmp/amy-godot-diagnostics.txt
+            adb shell run-as org.amy.godothello sh -c 'id; pwd; ls -la files; ls -la files/amy.sock 2>&1' >> /tmp/amy-godot-diagnostics.txt 2>&1 || true
             adb logcat -d > /tmp/amy-godot.log
+            echo '===== LOGCAT =====' >> /tmp/amy-godot-diagnostics.txt
+            cat /tmp/amy-godot.log >> /tmp/amy-godot-diagnostics.txt
+            cat /tmp/amy-godot-diagnostics.txt
 
       - name: Upload Godot Android smoke diagnostics
         if: always()
@@ -184,7 +188,10 @@ jobs:
       - name: Assert Godot-to-AMY smoke result
         run: |
           cat /tmp/amy-godot.log
+          grep -q 'AMY service start requested' /tmp/amy-godot.log
+          grep -q 'AMY native library loaded in service process' /tmp/amy-godot.log
           grep -q 'AMY/Oboe started' /tmp/amy-godot.log
+          grep -q 'AMY control socket connected' /tmp/amy-godot.log
           grep -q 'AMY Android service ready' /tmp/amy-godot.log
           grep -q 'Godot AMY ready' /tmp/amy-godot.log
           grep -q 'Godot wire: v0w0V10' /tmp/amy-godot.log

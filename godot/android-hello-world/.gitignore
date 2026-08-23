@@ -1,0 +1,6 @@
+.godot/
+android/
+build/
+addons/amy_android/*.aar
+addons/amy_android/amy.gd
+addons/amy_android/amy_android.gd

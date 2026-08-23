@@ -1,6 +1,7 @@
 package org.amy.hello;
 
 import android.app.Activity;
+import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
@@ -9,26 +10,17 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import org.amy.audio.AmyService;
+import org.amy.audio.AmyClient;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "AmyHelloWorld";
-    private static final String AUDIO_CAPTURE_MARKER = "amy-audio-capture.enable";
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
     private TextView status;
     private Button playButton;
-
-    static {
-        System.loadLibrary("amy_hello_client");
-    }
-
-    private static native int nativePlayCScale(String socketPath);
 
     @Override
     protected void onCreate(Bundle state) {
@@ -48,7 +40,7 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         status = new TextView(this);
-        status.setText("Starting AMY...");
+        status.setText("Waiting for AMY...");
         status.setTextSize(18);
         status.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
@@ -66,19 +58,6 @@ public final class MainActivity extends Activity {
 
         setContentView(root);
 
-        // The hello-world app is also the Android integration test client. Arm
-        // one diagnostic capture before starting the service. The generic AAR
-        // does not capture anything unless this private marker exists.
-        try {
-            File marker = new File(getFilesDir(), AUDIO_CAPTURE_MARKER);
-            if (!marker.createNewFile() && !marker.isFile()) {
-                Log.e(TAG, "Unable to arm AMY audio capture: " + marker);
-            }
-        } catch (IOException ex) {
-            Log.e(TAG, "Unable to arm AMY audio capture", ex);
-        }
-
-        AmyService.start(this);
         if (state == null) {
             playScale();
         } else {
@@ -86,23 +65,80 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private static int connectWithRetry(Context context, int timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        int result;
+        do {
+            result = AmyClient.connect(context);
+            if (result == 0 || System.nanoTime() >= deadline) return result;
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return -4;
+            }
+        } while (true);
+    }
+
+    private static int sendLogged(String wire) {
+        int result = AmyClient.sendWire(wire);
+        if (result == 0) Log.i(TAG, "wire: " + wire);
+        return result;
+    }
+
+    private static int playCScale(Context appContext) {
+        int result = AmyClient.isConnected() ? 0 : connectWithRetry(appContext, 5000);
+        if (result < 0) return result;
+
+        result = sendLogged("v0w0V10.0Z");
+        if (result < 0) return result;
+
+        try {
+            Thread.sleep(30);
+            final int[] notes = {60, 62, 64, 65, 67, 69, 71, 72};
+            for (int note : notes) {
+                result = sendLogged("v0n" + note + "l1Z");
+                if (result < 0) return result;
+                Thread.sleep(350);
+
+                result = sendLogged("v0l0Z");
+                if (result < 0) return result;
+                Thread.sleep(80);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return -4;
+        }
+
+        Log.i(TAG, "C scale complete");
+        return 0;
+    }
+
     private void playScale() {
         playButton.setEnabled(false);
         status.setText("Playing C major scale...");
-        String socketPath = new File(getFilesDir(), AmyService.DEFAULT_SOCKET_NAME)
-                .getAbsolutePath();
+        Context appContext = getApplicationContext();
 
         EXECUTOR.execute(() -> {
-            int rc = nativePlayCScale(socketPath);
+            int rc = playCScale(appContext);
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 if (rc == 0) {
                     status.setText("C scale complete");
                 } else {
+                    Log.e(TAG, "C scale failed: " + rc);
                     status.setText("AMY/socket error: " + rc);
                 }
                 playButton.setEnabled(true);
             });
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (isFinishing() && !isChangingConfigurations()) {
+            AmyClient.close();
+        }
+        super.onDestroy();
     }
 }

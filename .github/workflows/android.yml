@@ -82,10 +82,14 @@ jobs:
           script: |
             adb uninstall org.amy.hello >/dev/null 2>&1 || true
             adb install android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
+            adb shell run-as org.amy.hello mkdir -p files
+            adb shell run-as org.amy.hello touch files/amy-audio-capture.enable
             adb logcat -c
             adb shell am start -W -n org.amy.hello/.MainActivity
             sleep 10
-            adb logcat -d -s AmyAndroid:I AmyAudioCapture:I AmyService:I AmyHelloWorld:I '*:S' > /tmp/amy-first.log
+            adb logcat -d -s AmyAndroid:I AmyAudioCapture:I AmyAutoStart:I AmyService:I AmyHelloWorld:I '*:S' > /tmp/amy-first.log
+            cat /tmp/amy-first.log
+            grep -q 'AMY service auto-start requested' /tmp/amy-first.log
             test "$(grep -c 'AMY/Oboe started' /tmp/amy-first.log)" -eq 1
             grep -q 'AMY output route: deviceId=' /tmp/amy-first.log
             test "$(grep -c 'C scale complete' /tmp/amy-first.log)" -eq 1
@@ -98,10 +102,14 @@ jobs:
 
             adb uninstall org.amy.hello
             adb install android/hello-world/build/outputs/apk/debug/hello-world-debug.apk
+            adb shell run-as org.amy.hello mkdir -p files
+            adb shell run-as org.amy.hello touch files/amy-audio-capture.enable
             adb logcat -c
             adb shell am start -W -n org.amy.hello/.MainActivity
             sleep 10
-            adb logcat -d -s AmyAndroid:I AmyAudioCapture:I AmyService:I AmyHelloWorld:I '*:S' > /tmp/amy-second.log
+            adb logcat -d -s AmyAndroid:I AmyAudioCapture:I AmyAutoStart:I AmyService:I AmyHelloWorld:I '*:S' > /tmp/amy-second.log
+            cat /tmp/amy-second.log
+            grep -q 'AMY service auto-start requested' /tmp/amy-second.log
             test "$(grep -c 'AMY/Oboe started' /tmp/amy-second.log)" -eq 1
             grep -q 'AMY output route: deviceId=' /tmp/amy-second.log
             test "$(grep -c 'C scale complete' /tmp/amy-second.log)" -eq 1

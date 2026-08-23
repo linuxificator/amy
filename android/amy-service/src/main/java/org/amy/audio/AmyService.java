@@ -11,22 +11,12 @@ import android.util.Log;
 import java.io.File;
 import java.io.IOException;
 
-/**
- * Unexported same-UID service hosting native AMY + Oboe in a separate process.
- *
- * Musical control never crosses JNI. The host opens the private pathname Unix
- * SOCK_SEQPACKET socket and sends one AMY wire message per packet. JNI is only
- * used to start/stop the native engine and report its actual Oboe output device.
- */
+/** Unexported same-UID service hosting native AMY + Oboe in a separate process. */
 public final class AmyService extends Service {
     private static final String TAG = "AmyService";
 
     public static final String EXTRA_SOCKET_PATH = "org.amy.audio.extra.SOCKET_PATH";
     public static final String DEFAULT_SOCKET_NAME = "amy.sock";
-
-    static {
-        System.loadLibrary("amy_android");
-    }
 
     private boolean running;
     private String runningSocketPath;
@@ -35,17 +25,14 @@ public final class AmyService extends Service {
     private static native int nativeGetOutputDeviceId();
     private static native void nativeStop();
 
-    /** Start the private AMY process using filesDir/amy.sock. */
-    public static void start(Context context) {
-        File socket = new File(context.getFilesDir(), DEFAULT_SOCKET_NAME);
-        Intent intent = new Intent(context, AmyService.class);
-        intent.putExtra(EXTRA_SOCKET_PATH, socket.getAbsolutePath());
-        context.startService(intent);
-    }
-
-    /** Stop the private AMY process. */
-    public static void stop(Context context) {
-        context.stopService(new Intent(context, AmyService.class));
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        // This class is instantiated by Android in the manifest-declared :amy
+        // process. The full synth/audio library therefore never enters the UI
+        // or Godot process.
+        System.loadLibrary("amy_android");
+        Log.i(TAG, "AMY native library loaded in service process");
     }
 
     @Override
@@ -69,11 +56,7 @@ public final class AmyService extends Service {
             return START_NOT_STICKY;
         }
 
-        // Starting the same service again is normal Android lifecycle behavior.
-        // Do not tear down an active audio engine and disconnect its socket
-        // client merely because another equivalent startService() arrived.
         if (running && socketPath.equals(runningSocketPath)) {
-            Log.i(TAG, "AMY already running on private socket " + socketPath);
             return START_NOT_STICKY;
         }
 
@@ -119,26 +102,16 @@ public final class AmyService extends Service {
 
     private static String audioDeviceTypeName(int type) {
         switch (type) {
-            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
-                return "BUILTIN_EARPIECE";
-            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
-                return "BUILTIN_SPEAKER";
-            case AudioDeviceInfo.TYPE_WIRED_HEADSET:
-                return "WIRED_HEADSET";
-            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
-                return "WIRED_HEADPHONES";
-            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
-                return "BLUETOOTH_SCO";
-            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
-                return "BLUETOOTH_A2DP";
-            case AudioDeviceInfo.TYPE_HDMI:
-                return "HDMI";
-            case AudioDeviceInfo.TYPE_USB_DEVICE:
-                return "USB_DEVICE";
-            case AudioDeviceInfo.TYPE_USB_ACCESSORY:
-                return "USB_ACCESSORY";
-            default:
-                return "TYPE_" + type;
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE: return "BUILTIN_EARPIECE";
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "BUILTIN_SPEAKER";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "WIRED_HEADSET";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "WIRED_HEADPHONES";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO: return "BLUETOOTH_SCO";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: return "BLUETOOTH_A2DP";
+            case AudioDeviceInfo.TYPE_HDMI: return "HDMI";
+            case AudioDeviceInfo.TYPE_USB_DEVICE: return "USB_DEVICE";
+            case AudioDeviceInfo.TYPE_USB_ACCESSORY: return "USB_ACCESSORY";
+            default: return "TYPE_" + type;
         }
     }
 

@@ -1,0 +1,213 @@
+name: Godot Android raw-wire POC
+
+on:
+  push:
+    branches:
+      - feature/godot-android-raw-wire-poc
+  pull_request:
+    branches:
+      - upstream/android-oboe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  raw-wire-poc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;35.0.1" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build AMY AAR
+        run: bash godot/android-hello-world/prepare.sh
+
+      - name: Verify AMY AAR contents
+        run: |
+          AAR=godot/android-hello-world/addons/amy_android/amy-service-debug.aar
+          test -s "$AAR"
+          unzip -l "$AAR" | tee /tmp/amy-aar.txt
+          grep -q 'jni/arm64-v8a/libamy_android.so' /tmp/amy-aar.txt
+          grep -q 'jni/arm64-v8a/libamy_android_client.so' /tmp/amy-aar.txt
+          grep -q 'jni/x86_64/libamy_android.so' /tmp/amy-aar.txt
+          grep -q 'jni/x86_64/libamy_android_client.so' /tmp/amy-aar.txt
+          unzip -p "$AAR" classes.jar > /tmp/amy-classes.jar
+          unzip -l /tmp/amy-classes.jar | tee /tmp/amy-classes.txt
+          grep -q 'org/amy/audio/AmyService.class' /tmp/amy-classes.txt
+          grep -q 'org/amy/audio/AmyClient.class' /tmp/amy-classes.txt
+          grep -q 'org/amy/audio/AmyAutoStartProvider.class' /tmp/amy-classes.txt
+
+      - name: Install Godot 4.7.2 and Android export templates
+        run: |
+          curl -L --fail --retry 3 \
+            -o /tmp/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          GODOT_BIN="$(find /tmp/godot -maxdepth 1 -type f -name 'Godot*' | head -n1)"
+          chmod +x "$GODOT_BIN"
+          sudo cp "$GODOT_BIN" /usr/local/bin/godot
+
+          curl -L --fail --retry 3 \
+            -o /tmp/godot-templates.tpz \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+          rm -rf /tmp/godot-templates
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          cp -a /tmp/godot-templates/templates/. \
+            "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+          godot --version
+
+      - name: Import Godot project
+        run: godot --headless --path godot/android-hello-world --import --quit
+
+      - name: Export ARM64 phone APK
+        run: |
+          mkdir -p godot/android-hello-world/build
+          godot --headless \
+            --path godot/android-hello-world \
+            --install-android-build-template \
+            --export-debug "Android ARM64" build/amy-godot-raw-wire-arm64.apk
+          test -s godot/android-hello-world/build/amy-godot-raw-wire-arm64.apk
+
+      - name: Export x86_64 emulator APK
+        run: |
+          godot --headless \
+            --path godot/android-hello-world \
+            --export-debug "Android CI x86_64" build/amy-godot-raw-wire-x86_64.apk
+          test -s godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
+
+      - name: Verify APK packaging
+        run: |
+          ARM=godot/android-hello-world/build/amy-godot-raw-wire-arm64.apk
+          X86=godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
+
+          unzip -l "$ARM" | tee /tmp/arm-apk.txt
+          grep -q 'lib/arm64-v8a/libgodot_android.so' /tmp/arm-apk.txt
+          grep -q 'lib/arm64-v8a/libamy_android.so' /tmp/arm-apk.txt
+          grep -q 'lib/arm64-v8a/libamy_android_client.so' /tmp/arm-apk.txt
+          ! grep -q 'lib/x86_64/' /tmp/arm-apk.txt
+
+          unzip -l "$X86" | tee /tmp/x86-apk.txt
+          grep -q 'lib/x86_64/libgodot_android.so' /tmp/x86-apk.txt
+          grep -q 'lib/x86_64/libamy_android.so' /tmp/x86-apk.txt
+          grep -q 'lib/x86_64/libamy_android_client.so' /tmp/x86-apk.txt
+          ! grep -q 'lib/arm64-v8a/' /tmp/x86-apk.txt
+
+          for apk in "$ARM" "$X86"; do
+            for dex in $(zipinfo -1 "$apk" | grep -E '^classes([0-9]+)?\.dex$'); do
+              unzip -p "$apk" "$dex"
+            done | strings > /tmp/classes.txt
+            grep -q 'Lorg/amy/audio/AmyService;' /tmp/classes.txt
+            grep -q 'Lorg/amy/audio/AmyClient;' /tmp/classes.txt
+            grep -q 'Lorg/amy/audio/AmyAutoStartProvider;' /tmp/classes.txt
+          done
+
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-godot-raw-wire-arm64-apk
+          path: godot/android-hello-world/build/amy-godot-raw-wire-arm64.apk
+          if-no-files-found: error
+
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Godot -> amy.sock -> AMY smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          script: |
+            set -e
+            adb uninstall org.amy.godothello >/dev/null 2>&1 || true
+            adb install godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
+
+            # Arm the already-existing AMY integration-test audio capture before
+            # Android creates the application process/provider. This is test-only;
+            # Godot itself does not start or control AmyService.
+            adb shell run-as org.amy.godothello mkdir -p files
+            adb shell run-as org.amy.godothello touch files/amy-audio-capture.enable
+
+            adb logcat -c
+            adb shell am start -W -n org.amy.godothello/com.godot.game.GodotAppLauncher
+            sleep 12
+
+            adb logcat -d > /tmp/amy-godot.log
+            adb shell ps -A > /tmp/amy-processes.txt
+            adb shell run-as org.amy.godothello ls -la files > /tmp/amy-files.txt
+
+            echo '===== GODOT/AMY LOG ====='
+            grep -E 'AmyService|AmyAndroid|AmyAudioCapture|Godot (connected|wire:|raw-wire)' /tmp/amy-godot.log || true
+            echo '===== PROCESSES ====='
+            grep 'org.amy.godothello' /tmp/amy-processes.txt || true
+            echo '===== FILES ====='
+            cat /tmp/amy-files.txt
+
+            grep -q 'AMY listening on private socket' /tmp/amy-godot.log
+            grep -q 'AMY/Oboe started:' /tmp/amy-godot.log
+            grep -q 'Godot connected to amy.sock' /tmp/amy-godot.log
+            grep -q 'Godot wire: v0w0V10.0Z' /tmp/amy-godot.log
+            test "$(grep -Ec 'Godot wire: v0n(60|62|64|65|67|69|71|72)l1Z' /tmp/amy-godot.log)" -eq 8
+            grep -q 'Godot wire: v0n60l1Z' /tmp/amy-godot.log
+            grep -q 'Godot wire: v0n72l1Z' /tmp/amy-godot.log
+            grep -q 'Godot raw-wire C scale complete' /tmp/amy-godot.log
+            ! grep -q 'Godot raw-wire error:' /tmp/amy-godot.log
+            grep -q 'org.amy.godothello:amy' /tmp/amy-processes.txt
+            grep -q 'amy.sock' /tmp/amy-files.txt
+            grep -q 'amy-render.wav' /tmp/amy-files.txt
+            grep -q 'amy-oboe.wav' /tmp/amy-files.txt
+
+            mkdir -p android/godot-audio-capture
+            adb exec-out run-as org.amy.godothello cat files/amy-render.wav > android/godot-audio-capture/amy-render.wav
+            adb exec-out run-as org.amy.godothello cat files/amy-oboe.wav > android/godot-audio-capture/amy-oboe.wav
+            adb exec-out run-as org.amy.godothello cat files/amy-audio-levels.txt > android/godot-audio-capture/amy-audio-levels.txt
+            test -s android/godot-audio-capture/amy-render.wav
+            test -s android/godot-audio-capture/amy-oboe.wav
+            test -s android/godot-audio-capture/amy-audio-levels.txt
+
+      - name: Analyze audio produced by Godot wire commands
+        run: |
+          cat android/godot-audio-capture/amy-audio-levels.txt
+          python3 tests/check_android_audio_capture.py \
+            android/godot-audio-capture/amy-render.wav \
+            android/godot-audio-capture/amy-oboe.wav
+
+      - name: Upload diagnostics and captured audio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-godot-raw-wire-diagnostics
+          path: |
+            /tmp/amy-godot.log
+            /tmp/amy-processes.txt
+            /tmp/amy-files.txt
+            android/godot-audio-capture/
+          if-no-files-found: warn

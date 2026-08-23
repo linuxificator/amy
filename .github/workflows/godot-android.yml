@@ -145,20 +145,51 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
           script: |
+            set -u
             adb uninstall org.amy.godothello >/dev/null 2>&1 || true
             adb install godot/android-hello-world/build/godot-amy-hello-x86_64.apk
             adb logcat -c
             adb shell monkey -p org.amy.godothello 1 >/dev/null
             sleep 15
-            adb logcat -d > /tmp/amy-godot.log
-            cat /tmp/amy-godot.log
 
-            grep -q 'AMY/Oboe started' /tmp/amy-godot.log
-            grep -q 'AMY Android service ready' /tmp/amy-godot.log
-            grep -q 'Godot AMY ready' /tmp/amy-godot.log
-            grep -q 'Godot wire: v0w0V10' /tmp/amy-godot.log
-            test "$(grep -Ec 'Godot wire: v0n(60|62|64|65|67|69|71|72)l1' /tmp/amy-godot.log)" -eq 8
-            grep -q 'Godot wire: v0n60l1' /tmp/amy-godot.log
-            grep -q 'Godot wire: v0n72l1' /tmp/amy-godot.log
-            grep -q 'Godot C scale complete' /tmp/amy-godot.log
-            ! grep -q 'Godot AMY error:' /tmp/amy-godot.log
+            {
+              echo '===== PROCESS LIST ====='
+              adb shell ps -A | grep -E 'org\.amy\.godothello|amy' || true
+              echo
+              echo '===== PACKAGE ====='
+              adb shell dumpsys package org.amy.godothello || true
+              echo
+              echo '===== SERVICES ====='
+              adb shell dumpsys activity services org.amy.godothello || true
+              echo
+              echo '===== APP FILES ====='
+              adb shell run-as org.amy.godothello sh -c 'id; pwd; ls -la files; ls -la files/amy.sock 2>&1' || true
+              echo
+              echo '===== LOGCAT ====='
+              adb logcat -d
+            } | tee /tmp/amy-godot-diagnostics.txt
+
+            adb logcat -d > /tmp/amy-godot.log
+
+      - name: Upload Godot Android smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-godot-android-smoke-diagnostics
+          path: |
+            /tmp/amy-godot.log
+            /tmp/amy-godot-diagnostics.txt
+          if-no-files-found: warn
+
+      - name: Assert Godot-to-AMY smoke result
+        run: |
+          cat /tmp/amy-godot.log
+          grep -q 'AMY/Oboe started' /tmp/amy-godot.log
+          grep -q 'AMY Android service ready' /tmp/amy-godot.log
+          grep -q 'Godot AMY ready' /tmp/amy-godot.log
+          grep -q 'Godot wire: v0w0V10' /tmp/amy-godot.log
+          test "$(grep -Ec 'Godot wire: v0n(60|62|64|65|67|69|71|72)l1' /tmp/amy-godot.log)" -eq 8
+          grep -q 'Godot wire: v0n60l1' /tmp/amy-godot.log
+          grep -q 'Godot wire: v0n72l1' /tmp/amy-godot.log
+          grep -q 'Godot C scale complete' /tmp/amy-godot.log
+          ! grep -q 'Godot AMY error:' /tmp/amy-godot.log

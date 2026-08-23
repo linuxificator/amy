@@ -9,6 +9,7 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.amy.audio.AmyClient;
 import org.amy.audio.AmyService;
 
 import java.io.File;
@@ -19,16 +20,12 @@ import java.util.concurrent.Executors;
 public final class MainActivity extends Activity {
     private static final String TAG = "AmyHelloWorld";
     private static final String AUDIO_CAPTURE_MARKER = "amy-audio-capture.enable";
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final AmyClient amyClient = new AmyClient();
 
     private TextView status;
     private Button playButton;
-
-    static {
-        System.loadLibrary("amy_hello_client");
-    }
-
-    private static native int nativePlayCScale(String socketPath);
 
     @Override
     protected void onCreate(Bundle state) {
@@ -86,23 +83,67 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private int sendLogged(String wire) {
+        int result = amyClient.sendWire(wire);
+        if (result == 0) {
+            Log.i(TAG, "wire: " + wire);
+        }
+        return result;
+    }
+
+    private int playCScale() {
+        int result = amyClient.isConnected() ? 0 : amyClient.connectWithRetry(this, 5000);
+        if (result < 0) return result;
+
+        // AMY's V control is a 0..10 bus/master volume scale; V10.0 gives full
+        // master gain. AmyClient preserves one wire request per socket packet.
+        result = sendLogged("v0w0V10.0Z");
+        if (result < 0) return result;
+
+        try {
+            Thread.sleep(30);
+            final int[] notes = {60, 62, 64, 65, 67, 69, 71, 72};
+            for (int note : notes) {
+                result = sendLogged("v0n" + note + "l1Z");
+                if (result < 0) return result;
+                Thread.sleep(350);
+
+                result = sendLogged("v0l0Z");
+                if (result < 0) return result;
+                Thread.sleep(80);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            return -4;
+        }
+
+        Log.i(TAG, "C scale complete");
+        return 0;
+    }
+
     private void playScale() {
         playButton.setEnabled(false);
         status.setText("Playing C major scale...");
-        String socketPath = new File(getFilesDir(), AmyService.DEFAULT_SOCKET_NAME)
-                .getAbsolutePath();
 
-        EXECUTOR.execute(() -> {
-            int rc = nativePlayCScale(socketPath);
+        executor.execute(() -> {
+            int rc = playCScale();
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 if (rc == 0) {
                     status.setText("C scale complete");
                 } else {
+                    Log.e(TAG, "C scale failed: " + rc);
                     status.setText("AMY/socket error: " + rc);
                 }
                 playButton.setEnabled(true);
             });
         });
+    }
+
+    @Override
+    protected void onDestroy() {
+        amyClient.close();
+        executor.shutdownNow();
+        super.onDestroy();
     }
 }

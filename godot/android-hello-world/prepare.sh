@@ -5,6 +5,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/../.." && pwd)"
 GRADLE_BIN="${GRADLE_BIN:-gradle}"
 
+# Android intentionally builds/packages only the independent AMY service AAR.
+# Do not build or copy the Godot AmySynth GDExtension for Android.
 (
   cd "${ROOT}/android"
   "${GRADLE_BIN}" :amy-service:assembleDebug

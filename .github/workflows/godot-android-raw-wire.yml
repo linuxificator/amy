@@ -157,7 +157,7 @@ jobs:
             adb shell run-as org.amy.godothello touch files/amy-audio-capture.enable
 
             adb logcat -c
-            adb shell monkey -p org.amy.godothello 1 >/dev/null
+            adb shell am start -W -n org.amy.godothello/com.godot.game.GodotAppLauncher
             sleep 12
 
             adb logcat -d > /tmp/amy-godot.log

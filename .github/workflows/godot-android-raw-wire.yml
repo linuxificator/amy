@@ -130,6 +130,13 @@ jobs:
           path: godot/android-hello-world/build/amy-godot-raw-wire-arm64.apk
           if-no-files-found: error
 
+      - name: Enable KVM for Android emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Run Godot -> amy.sock -> AMY smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:

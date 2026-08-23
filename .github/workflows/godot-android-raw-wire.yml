@@ -147,9 +147,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
           script: |
             set -e
-            APK=godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
             adb uninstall org.amy.godothello >/dev/null 2>&1 || true
-            adb install "$APK"
+            adb install godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
 
             # Arm the already-existing AMY integration-test audio capture before
             # Android creates the application process/provider. This is test-only;

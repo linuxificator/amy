@@ -34,7 +34,7 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build AMY service AAR
+      - name: Build AMY service AAR and stage shared Amy.gd
         run: bash godot/android-hello-world/prepare.sh
 
       - name: Verify AAR has no native client library
@@ -49,6 +49,15 @@ jobs:
           unzip -l /tmp/amy-classes.jar | tee /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyClient.class' /tmp/amy-classes.txt
           ! strings /tmp/amy-classes.jar | grep -q 'amy_android_client'
+
+      - name: Verify Stage 2 uses shared Amy.gd API only
+        run: |
+          cmp godot/amy.gd godot/android-hello-world/amy.gd
+          grep -q 'AmyApi.new()' godot/android-hello-world/main.gd
+          grep -q '_amy.send(params)' godot/android-hello-world/main.gd
+          ! grep -q 'JavaClassWrapper' godot/android-hello-world/main.gd
+          ! grep -q 'AmyClient' godot/android-hello-world/main.gd
+          ! grep -q 'sendWire' godot/android-hello-world/main.gd
 
       - name: Guard against Android AmySynth GDExtension
         run: |
@@ -105,7 +114,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run socket-only Godot smoke test
+      - name: Run Amy.gd dictionary API smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -126,8 +135,13 @@ jobs:
             adb shell ps -A > /tmp/amy-processes.txt
             grep -q 'AMY listening on private socket' /tmp/amy-godot.log
             grep -q 'AMY/Oboe started:' /tmp/amy-godot.log
-            grep -q 'Godot connected to amy.sock' /tmp/amy-godot.log
-            test "$(grep -Ec 'Godot wire: v0n(60|62|64|65|67|69|71|72)l1Z' /tmp/amy-godot.log)" -eq 8
-            grep -q 'Godot raw-wire C scale complete' /tmp/amy-godot.log
-            ! grep -q 'Godot raw-wire error:' /tmp/amy-godot.log
+            grep -q 'AMY Android connected to amy.sock' /tmp/amy-godot.log
+            grep -q 'Godot Amy.gd Android backend ready' /tmp/amy-godot.log
+            grep -q 'AMY Android wire: v0w0V10' /tmp/amy-godot.log
+            test "$(grep -Ec 'AMY Android wire: v0n(60|62|64|65|67|69|71|72)l1' /tmp/amy-godot.log)" -eq 8
+            test "$(grep -c 'AMY Android wire: v0l0' /tmp/amy-godot.log)" -eq 8
+            grep -q 'Godot Amy.gd C scale complete' /tmp/amy-godot.log
+            ! grep -q 'Godot Amy.gd error:' /tmp/amy-godot.log
+            ! grep -q 'AmyClient.sendWire exception:' /tmp/amy-godot.log
+            ! grep -q 'amy.sock send failed:' /tmp/amy-godot.log
             grep -q 'org.amy.godothello:amy' /tmp/amy-processes.txt

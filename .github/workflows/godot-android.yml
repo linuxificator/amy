@@ -78,16 +78,15 @@ jobs:
             "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
           godot --version
 
-      - name: Import Godot project and install Android build template
-        run: |
-          godot --headless --path godot/android-hello-world --import --quit
-          godot --headless --path godot/android-hello-world --install-android-build-template
+      - name: Import Godot project
+        run: godot --headless --path godot/android-hello-world --import --quit
 
       - name: Export ARM64 phone APK
         run: |
           mkdir -p godot/android-hello-world/build
           godot --headless \
             --path godot/android-hello-world \
+            --install-android-build-template \
             --export-debug "Android ARM64" build/godot-amy-hello-arm64.apk
           test -s godot/android-hello-world/build/godot-amy-hello-arm64.apk
 

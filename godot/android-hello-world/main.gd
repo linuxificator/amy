@@ -73,9 +73,9 @@ func _play_scale() -> void:
 	_play_button.disabled = true
 	_status.text = "Playing C major scale through Amy.gd..."
 
-	# Stage 2 deliberately uses only Amy.gd's ordinary dictionary API. The
-	# shared message() implementation produces the AMY wire command and Amy.gd's
-	# Android backend sends that command through the private service socket.
+	# Stage 2 uses only Amy.gd's ordinary dictionary API. The shared message()
+	# implementation produces the wire command and Amy.gd's Android backend sends
+	# exactly that command through the private service socket.
 	if not _send({"osc": 0, "wave": AmyApi.SINE, "volume": 10.0}):
 		return
 	await get_tree().create_timer(0.03).timeout

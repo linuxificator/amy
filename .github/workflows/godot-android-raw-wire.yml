@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/godot-android-raw-wire-poc
+  pull_request:
+    branches:
+      - upstream/android-oboe
   workflow_dispatch:
 
 permissions:

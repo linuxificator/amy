@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
@@ -15,7 +16,7 @@ public:
     bool enabled() const { return mEnabled; }
 
     // Called only from Oboe's realtime callback. These methods allocate no
-    // memory, perform no file I/O, and take no lock until the capture is full.
+    // memory, perform no file I/O, and never take the writer mutex.
     void beginCallback(int32_t numFrames);
     void captureAmyChunk(const int16_t *samples, int32_t frames, int32_t outputFrame);
     void finishCallback(const int16_t *oboeOutput, int32_t numFrames);
@@ -43,7 +44,7 @@ private:
 
     std::mutex mWriterMutex;
     std::condition_variable mWriterCv;
-    bool mWriterReady = false;
+    std::atomic<bool> mWriterReady{false};
     bool mWriterStop = false;
     std::thread mWriter;
 };

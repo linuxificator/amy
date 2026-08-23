@@ -1,9 +1,10 @@
-name: Godot Android raw-wire POC
+name: Godot Android socket-only POC
 
 on:
   push:
     branches:
       - feature/godot-android-raw-wire-poc
+      - feature/godot-android-api-wire-poc
   pull_request:
     branches:
       - upstream/android-oboe
@@ -39,23 +40,30 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Build AMY AAR
+      - name: Build AMY service AAR
         run: bash godot/android-hello-world/prepare.sh
 
-      - name: Verify AMY AAR contents
+      - name: Verify AMY AAR contains service only
         run: |
           AAR=godot/android-hello-world/addons/amy_android/amy-service-debug.aar
           test -s "$AAR"
           unzip -l "$AAR" | tee /tmp/amy-aar.txt
           grep -q 'jni/arm64-v8a/libamy_android.so' /tmp/amy-aar.txt
-          grep -q 'jni/arm64-v8a/libamy_android_client.so' /tmp/amy-aar.txt
           grep -q 'jni/x86_64/libamy_android.so' /tmp/amy-aar.txt
-          grep -q 'jni/x86_64/libamy_android_client.so' /tmp/amy-aar.txt
+          ! grep -q 'libamy_android_client.so' /tmp/amy-aar.txt
           unzip -p "$AAR" classes.jar > /tmp/amy-classes.jar
           unzip -l /tmp/amy-classes.jar | tee /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyService.class' /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyClient.class' /tmp/amy-classes.txt
           grep -q 'org/amy/audio/AmyAutoStartProvider.class' /tmp/amy-classes.txt
+
+      - name: Guard against Android AMY GDExtension
+        run: |
+          # Desktop/web AMY integration may continue to exist in godot/, but
+          # Android must use only the independent service AAR and wire socket.
+          ! grep -Eq '^android\.' godot/amy.gdextension
+          test ! -e godot/android-hello-world/amy.gdextension
+          test ! -d godot/android-hello-world/addons/amy/bin
 
       - name: Install Godot 4.7.2 and Android export templates
         run: |
@@ -79,7 +87,10 @@ jobs:
           godot --version
 
       - name: Import Godot project
-        run: godot --headless --path godot/android-hello-world --import --quit
+        run: |
+          godot --headless --path godot/android-hello-world --import --quit 2>&1 | tee /tmp/godot-import.log
+          ! grep -q 'SCRIPT ERROR' /tmp/godot-import.log
+          ! grep -q 'ERROR: Failed to load script' /tmp/godot-import.log
 
       - name: Export ARM64 phone APK
         run: |
@@ -97,7 +108,7 @@ jobs:
             --export-debug "Android CI x86_64" build/amy-godot-raw-wire-x86_64.apk
           test -s godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
 
-      - name: Verify APK packaging
+      - name: Verify Android APK has exactly one AMY native implementation
         run: |
           ARM=godot/android-hello-world/build/amy-godot-raw-wire-arm64.apk
           X86=godot/android-hello-world/build/amy-godot-raw-wire-x86_64.apk
@@ -105,14 +116,18 @@ jobs:
           unzip -l "$ARM" | tee /tmp/arm-apk.txt
           grep -q 'lib/arm64-v8a/libgodot_android.so' /tmp/arm-apk.txt
           grep -q 'lib/arm64-v8a/libamy_android.so' /tmp/arm-apk.txt
-          grep -q 'lib/arm64-v8a/libamy_android_client.so' /tmp/arm-apk.txt
+          ! grep -q 'libamy_android_client.so' /tmp/arm-apk.txt
           ! grep -q 'lib/x86_64/' /tmp/arm-apk.txt
+          test "$(grep -Ec 'lib/arm64-v8a/libamy[^ ]*\.so' /tmp/arm-apk.txt)" -eq 1
+          ! zipinfo -1 "$ARM" | grep -q 'amy.gdextension'
 
           unzip -l "$X86" | tee /tmp/x86-apk.txt
           grep -q 'lib/x86_64/libgodot_android.so' /tmp/x86-apk.txt
           grep -q 'lib/x86_64/libamy_android.so' /tmp/x86-apk.txt
-          grep -q 'lib/x86_64/libamy_android_client.so' /tmp/x86-apk.txt
+          ! grep -q 'libamy_android_client.so' /tmp/x86-apk.txt
           ! grep -q 'lib/arm64-v8a/' /tmp/x86-apk.txt
+          test "$(grep -Ec 'lib/x86_64/libamy[^ ]*\.so' /tmp/x86-apk.txt)" -eq 1
+          ! zipinfo -1 "$X86" | grep -q 'amy.gdextension'
 
           for apk in "$ARM" "$X86"; do
             for dex in $(zipinfo -1 "$apk" | grep -E '^classes([0-9]+)?\.dex$'); do

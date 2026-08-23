@@ -1,6 +1,7 @@
 package org.amy.hello;
 
 import android.app.Activity;
+import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
@@ -21,8 +22,12 @@ public final class MainActivity extends Activity {
     private static final String TAG = "AmyHelloWorld";
     private static final String AUDIO_CAPTURE_MARKER = "amy-audio-capture.enable";
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private final AmyClient amyClient = new AmyClient();
+    // Keep the integration-test worker and socket client independent of one
+    // Activity instance. Android may recreate the Activity during a cold launch
+    // (for example after a configuration change); that must not interrupt a
+    // musical command sequence already in progress.
+    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final AmyClient AMY_CLIENT = new AmyClient();
 
     private TextView status;
     private Button playButton;
@@ -83,16 +88,18 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private int sendLogged(String wire) {
-        int result = amyClient.sendWire(wire);
+    private static int sendLogged(String wire) {
+        int result = AMY_CLIENT.sendWire(wire);
         if (result == 0) {
             Log.i(TAG, "wire: " + wire);
         }
         return result;
     }
 
-    private int playCScale() {
-        int result = amyClient.isConnected() ? 0 : amyClient.connectWithRetry(this, 5000);
+    private static int playCScale(Context appContext) {
+        int result = AMY_CLIENT.isConnected()
+                ? 0
+                : AMY_CLIENT.connectWithRetry(appContext, 5000);
         if (result < 0) return result;
 
         // AMY's V control is a 0..10 bus/master volume scale; V10.0 gives full
@@ -124,9 +131,10 @@ public final class MainActivity extends Activity {
     private void playScale() {
         playButton.setEnabled(false);
         status.setText("Playing C major scale...");
+        Context appContext = getApplicationContext();
 
-        executor.execute(() -> {
-            int rc = playCScale();
+        EXECUTOR.execute(() -> {
+            int rc = playCScale(appContext);
             runOnUiThread(() -> {
                 if (isDestroyed()) return;
                 if (rc == 0) {
@@ -142,8 +150,12 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        amyClient.close();
-        executor.shutdownNow();
+        // Do not close the process-level client during an Android Activity
+        // recreation. If this Activity is really finishing, release the socket;
+        // process death would close it automatically as well.
+        if (isFinishing() && !isChangingConfigurations()) {
+            AMY_CLIENT.close();
+        }
         super.onDestroy();
     }
 }

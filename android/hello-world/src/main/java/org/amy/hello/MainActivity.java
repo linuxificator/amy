@@ -10,21 +10,13 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import org.amy.audio.AmyAndroidBridge;
+import org.amy.audio.AmyClient;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final String TAG = "AmyHelloWorld";
-    private static final String AUDIO_CAPTURE_MARKER = "amy-audio-capture.enable";
-
-    // Keep the integration-test worker independent of one Activity instance.
-    // AmyAndroidBridge owns the process-level persistent socket client. Android
-    // may recreate the Activity during a cold launch; that must not interrupt a
-    // musical command sequence already in progress.
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
 
     private TextView status;
@@ -48,7 +40,7 @@ public final class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         status = new TextView(this);
-        status.setText("Starting AMY...");
+        status.setText("Waiting for AMY...");
         status.setTextSize(18);
         status.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
@@ -66,46 +58,38 @@ public final class MainActivity extends Activity {
 
         setContentView(root);
 
-        // The hello-world app is also the Android integration test client. Arm
-        // one diagnostic capture before starting the service. The generic AAR
-        // does not capture anything unless this private marker exists.
-        try {
-            File marker = new File(getFilesDir(), AUDIO_CAPTURE_MARKER);
-            if (!marker.createNewFile() && !marker.isFile()) {
-                Log.e(TAG, "Unable to arm AMY audio capture: " + marker);
-            }
-        } catch (IOException ex) {
-            Log.e(TAG, "Unable to arm AMY audio capture", ex);
-        }
-
-        int startResult = AmyAndroidBridge.start(this);
-        if (startResult < 0) {
-            Log.e(TAG, "AMY bridge start failed: " + startResult + " "
-                    + AmyAndroidBridge.getLastErrorText());
-            status.setText("AMY start error: " + startResult);
-        } else if (state == null) {
+        if (state == null) {
             playScale();
         } else {
             status.setText("AMY ready");
         }
     }
 
+    private static int connectWithRetry(Context context, int timeoutMs) {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        int result;
+        do {
+            result = AmyClient.connect(context);
+            if (result == 0 || System.nanoTime() >= deadline) return result;
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return -4;
+            }
+        } while (true);
+    }
+
     private static int sendLogged(String wire) {
-        int result = AmyAndroidBridge.sendWire(wire);
-        if (result == 0) {
-            Log.i(TAG, "wire: " + wire);
-        }
+        int result = AmyClient.sendWire(wire);
+        if (result == 0) Log.i(TAG, "wire: " + wire);
         return result;
     }
 
     private static int playCScale(Context appContext) {
-        int result = AmyAndroidBridge.isConnected()
-                ? 0
-                : AmyAndroidBridge.connectWithRetry(appContext, 5000);
+        int result = AmyClient.isConnected() ? 0 : connectWithRetry(appContext, 5000);
         if (result < 0) return result;
 
-        // AMY's V control is a 0..10 bus/master volume scale; V10.0 gives full
-        // master gain. The bridge preserves one wire request per socket packet.
         result = sendLogged("v0w0V10.0Z");
         if (result < 0) return result;
 
@@ -142,8 +126,7 @@ public final class MainActivity extends Activity {
                 if (rc == 0) {
                     status.setText("C scale complete");
                 } else {
-                    Log.e(TAG, "C scale failed: " + rc + " "
-                            + AmyAndroidBridge.getLastErrorText());
+                    Log.e(TAG, "C scale failed: " + rc);
                     status.setText("AMY/socket error: " + rc);
                 }
                 playButton.setEnabled(true);
@@ -153,11 +136,8 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // Do not close the process-level client during an Android Activity
-        // recreation. If this Activity is really finishing, release the socket;
-        // process death would close it automatically as well.
         if (isFinishing() && !isChangingConfigurations()) {
-            AmyAndroidBridge.close();
+            AmyClient.close();
         }
         super.onDestroy();
     }

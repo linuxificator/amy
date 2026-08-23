@@ -2,8 +2,11 @@ extends Control
 
 var _status: Label
 var _play_button: Button
-var _amy_client: Object
-var _android_context: Object
+# Deliberately leave these as Variant. Typing AmyClient as Object makes
+# GDScript bind connect() to Object.connect(signal, callable) at parse time
+# instead of dispatching to the wrapped Java static method.
+var _amy_client
+var _android_context
 
 func _ready() -> void:
 	_build_ui()
@@ -12,7 +15,7 @@ func _ready() -> void:
 		_fail("Android export required")
 		return
 
-	var runtime: Object = Engine.get_singleton("AndroidRuntime")
+	var runtime = Engine.get_singleton("AndroidRuntime")
 	if runtime == null:
 		_fail("AndroidRuntime unavailable")
 		return
@@ -33,7 +36,7 @@ func _ready() -> void:
 	_status.text = "Connecting to amy.sock..."
 	for _attempt in range(200):
 		var rc: int = int(_amy_client.connect(_android_context))
-		var exception: Object = JavaClassWrapper.get_exception()
+		var exception = JavaClassWrapper.get_exception()
 		if exception != null:
 			_fail("AmyClient.connect exception: %s" % str(exception))
 			return
@@ -84,7 +87,7 @@ func _on_play_pressed() -> void:
 
 func _send_wire(wire: String) -> bool:
 	var rc: int = int(_amy_client.sendWire(wire))
-	var exception: Object = JavaClassWrapper.get_exception()
+	var exception = JavaClassWrapper.get_exception()
 	if exception != null:
 		_fail("AmyClient.sendWire exception: %s" % str(exception))
 		return false

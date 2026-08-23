@@ -107,6 +107,29 @@ jobs:
           test "$(grep -Ec 'lib/x86_64/libamy[^ ]*\.so' /tmp/apk.txt)" -eq 1
           ! zipinfo -1 "$APK" | grep -q 'amy.gdextension'
 
+      - name: Export ARM64 test APK
+        run: |
+          godot --headless \
+            --path godot/android-hello-world \
+            --install-android-build-template \
+            --export-debug "Android ARM64" build/amy-godot-api-wire-arm64.apk
+          APK=godot/android-hello-world/build/amy-godot-api-wire-arm64.apk
+          test -s "$APK"
+          unzip -l "$APK" | tee /tmp/apk-arm64.txt
+          grep -q 'lib/arm64-v8a/libgodot_android.so' /tmp/apk-arm64.txt
+          grep -q 'lib/arm64-v8a/libamy_android.so' /tmp/apk-arm64.txt
+          ! grep -q 'libamy_android_client.so' /tmp/apk-arm64.txt
+          test "$(grep -Ec 'lib/arm64-v8a/libamy[^ ]*\.so' /tmp/apk-arm64.txt)" -eq 1
+          ! zipinfo -1 "$APK" | grep -q 'amy.gdextension'
+          sha256sum "$APK"
+
+      - name: Upload ARM64 test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-godot-api-wire-arm64
+          path: godot/android-hello-world/build/amy-godot-api-wire-arm64.apk
+          if-no-files-found: error
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \

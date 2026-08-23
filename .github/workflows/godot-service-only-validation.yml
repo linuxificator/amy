@@ -1,0 +1,133 @@
+name: Godot Android service-only validation
+
+on:
+  pull_request:
+    branches:
+      - validation/godot-service-only-ci-base
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;35.0.1" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build AMY service AAR
+        run: bash godot/android-hello-world/prepare.sh
+
+      - name: Verify AAR has no native client library
+        run: |
+          AAR=godot/android-hello-world/addons/amy_android/amy-service-debug.aar
+          test -s "$AAR"
+          unzip -l "$AAR" | tee /tmp/amy-aar.txt
+          grep -q 'jni/arm64-v8a/libamy_android.so' /tmp/amy-aar.txt
+          grep -q 'jni/x86_64/libamy_android.so' /tmp/amy-aar.txt
+          ! grep -q 'libamy_android_client.so' /tmp/amy-aar.txt
+          unzip -p "$AAR" classes.jar > /tmp/amy-classes.jar
+          unzip -l /tmp/amy-classes.jar | tee /tmp/amy-classes.txt
+          grep -q 'org/amy/audio/AmyClient.class' /tmp/amy-classes.txt
+          ! strings /tmp/amy-classes.jar | grep -q 'amy_android_client'
+
+      - name: Guard against Android AmySynth GDExtension
+        run: |
+          ! grep -Eq '^android\.' godot/amy.gdextension
+          test ! -e godot/android-hello-world/amy.gdextension
+          test ! -d godot/android-hello-world/addons/amy/bin
+
+      - name: Install Godot 4.7.2 and Android export templates
+        run: |
+          curl -L --fail --retry 3 -o /tmp/godot.zip \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          GODOT_BIN="$(find /tmp/godot -maxdepth 1 -type f -name 'Godot*' | head -n1)"
+          chmod +x "$GODOT_BIN"
+          sudo cp "$GODOT_BIN" /usr/local/bin/godot
+
+          curl -L --fail --retry 3 -o /tmp/godot-templates.tpz \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_export_templates.tpz
+          rm -rf /tmp/godot-templates
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/godot-templates.tpz -d /tmp/godot-templates
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.7.2.stable"
+          cp -a /tmp/godot-templates/templates/. "$HOME/.local/share/godot/export_templates/4.7.2.stable/"
+
+      - name: Import project and reject script errors
+        run: |
+          godot --headless --path godot/android-hello-world --import --quit 2>&1 | tee /tmp/godot-import.log
+          ! grep -q 'SCRIPT ERROR' /tmp/godot-import.log
+          ! grep -q 'ERROR: Failed to load script' /tmp/godot-import.log
+
+      - name: Export x86_64 emulator APK
+        run: |
+          mkdir -p godot/android-hello-world/build
+          godot --headless \
+            --path godot/android-hello-world \
+            --install-android-build-template \
+            --export-debug "Android CI x86_64" build/amy-godot-service-only-x86_64.apk
+          test -s godot/android-hello-world/build/amy-godot-service-only-x86_64.apk
+
+      - name: Verify APK contains only service AMY native library
+        run: |
+          APK=godot/android-hello-world/build/amy-godot-service-only-x86_64.apk
+          unzip -l "$APK" | tee /tmp/apk.txt
+          grep -q 'lib/x86_64/libgodot_android.so' /tmp/apk.txt
+          grep -q 'lib/x86_64/libamy_android.so' /tmp/apk.txt
+          ! grep -q 'libamy_android_client.so' /tmp/apk.txt
+          test "$(grep -Ec 'lib/x86_64/libamy[^ ]*\.so' /tmp/apk.txt)" -eq 1
+          ! zipinfo -1 "$APK" | grep -q 'amy.gdextension'
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run socket-only Godot smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -no-boot-anim
+          script: |
+            set -e
+            adb uninstall org.amy.godothello >/dev/null 2>&1 || true
+            adb install godot/android-hello-world/build/amy-godot-service-only-x86_64.apk
+            adb shell run-as org.amy.godothello mkdir -p files
+            adb shell run-as org.amy.godothello touch files/amy-audio-capture.enable
+            adb logcat -c
+            adb shell am start -W -n org.amy.godothello/com.godot.game.GodotAppLauncher
+            sleep 12
+            adb logcat -d > /tmp/amy-godot.log
+            adb shell ps -A > /tmp/amy-processes.txt
+            grep -q 'AMY listening on private socket' /tmp/amy-godot.log
+            grep -q 'AMY/Oboe started:' /tmp/amy-godot.log
+            grep -q 'Godot connected to amy.sock' /tmp/amy-godot.log
+            test "$(grep -Ec 'Godot wire: v0n(60|62|64|65|67|69|71|72)l1Z' /tmp/amy-godot.log)" -eq 8
+            grep -q 'Godot raw-wire C scale complete' /tmp/amy-godot.log
+            ! grep -q 'Godot raw-wire error:' /tmp/amy-godot.log
+            grep -q 'org.amy.godothello:amy' /tmp/amy-processes.txt

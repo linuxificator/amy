@@ -72,8 +72,10 @@ calls AMY and never participates in audio rendering.
 
 AMY is started with its internal platform audio disabled and with AMY rendering
 owned by the Oboe callback thread. The current Android build configuration
-reserves 336 addressable oscillators, 11 runtime buses, and 16 Karplus-Strong
-oscillators. These are service-host capacities, not wire-protocol extensions:
+reserves 336 addressable oscillators, 11 runtime buses, 16 Karplus-Strong
+oscillators, 1024 stored nested patterns, 64 events per pattern and 32 active
+or pending pattern instances. These are service-host capacities, not
+wire-protocol extensions; AMY's portable defaults remain smaller:
 clients continue to send ordinary AMY messages and may use any smaller layout.
 
 ## JNI boundary
@@ -170,7 +172,8 @@ It validates packet round-trip, mode/ownership, `EMSGSIZE` behavior,
 oversized-packet rejection, cleanup, and protection against deleting an
 existing non-socket path. `tests/test_android_service_contract.py` additionally
 guards the AAR's private-process manifest, socket-only client boundary, and the
-336-oscillator/11-bus integration profile without requiring an Android SDK.
+336-oscillator/11-bus/1024-pattern integration profile without requiring an
+Android SDK.
 
 `.github/workflows/android.yml` runs that regression plus a complete Android
 AAR/NDK/Oboe build and emulator end-to-end test. The emulator arms its own

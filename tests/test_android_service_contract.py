@@ -30,6 +30,12 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
+    require(r"config\.max_patterns\s*=\s*1024\s*;", engine,
+            "LB fill-library pattern capacity")
+    require(r"config\.max_pattern_tags\s*=\s*64\s*;", engine,
+            "per-pattern event capacity")
+    require(r"config\.max_pattern_instances\s*=\s*32\s*;", engine,
+            "active pattern-instance capacity")
     require(r"kCaptureSeconds\s*=\s*8\s*;", capture,
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
@@ -47,7 +53,7 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "336 oscillators, 11 buses, 8-second test capture")
+          "336 oscillators, 11 buses, 1024 patterns, 8-second test capture")
 
 
 if __name__ == "__main__":

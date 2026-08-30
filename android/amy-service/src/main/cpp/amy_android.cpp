@@ -75,6 +75,9 @@ public:
          */
         config.max_oscs = kIntegrationMaxOscillators;
         config.max_buses = kIntegrationMaxBuses;
+        config.max_patterns = 1024;
+        config.max_pattern_tags = 64;
+        config.max_pattern_instances = 32;
         /* Keep AMY rendering entirely on Oboe's realtime callback thread. */
         config.platform.multicore = 0;
         config.platform.multithread = 0;

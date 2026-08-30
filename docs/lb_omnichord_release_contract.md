@@ -67,13 +67,19 @@ The nested-sequencer work follows two deliberately separate histories:
    experimental pattern lane/priority overlay from both the clean upstream
    proposal and the internal release. LB uses explicit finite tag mutes, so
    the implicit overlay policy was redundant and did not belong in AMY.
-4. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
+4. `releases/amy_omnichord_R20260830T220021` starts at the exact tip of that
+   release, `57a97d7f5399f00afff0d498e060b53b8cd305c4`. It cherry-picks the
+   generic wire cleanup from `upstream/nested_sequencer`: stored-event
+   authoring is now `zQE`, so every new nested-pattern operation shares the
+   existing `zQ` extended-control family and no new top-level wire command is
+   introduced. The legacy root `H` grammar and parser path remain unchanged.
+5. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
    as stored patterns, use loop mode for the base rhythm and one-shot mode for
    fills, and pass all existing platform and release tests. Each logical
    percussion role is a tagged loop instance. A fill stores generic `zQM`
    events for the role instances it suppresses; deciding which musical roles
    continue is exclusively LB Omnichord policy and is not AMY engine code.
-5. Only after the complete Omnichord behavior is verified may the clean
+6. Only after the complete Omnichord behavior is verified may the clean
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
    branch itself is never the source of that pull request.
 

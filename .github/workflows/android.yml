@@ -1,0 +1,57 @@
+name: Android AMY
+
+on:
+  pull_request:
+    paths:
+      - "android/**"
+      - "src/**"
+      - "tests/test_amy_unix_socket.c"
+      - "tests/run_amy_unix_socket_test.sh"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  socket-transport:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and run private Unix socket test
+        run: bash tests/run_amy_unix_socket_test.sh
+
+  android-aar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;35.0.0" \
+            "ndk;27.0.12077973" \
+            "cmake;3.22.1"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build AMY Android AAR
+        working-directory: android
+        run: gradle :amy-service:assembleDebug --stacktrace
+
+      - name: Upload AMY Android AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: amy-service-debug-aar
+          path: android/amy-service/build/outputs/aar/amy-service-debug.aar
+          if-no-files-found: error

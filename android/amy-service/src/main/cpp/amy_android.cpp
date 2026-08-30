@@ -17,6 +17,9 @@
 extern "C" {
 #include "amy.h"
 #include "amy_unix_socket.h"
+#ifdef GAMMA9001
+extern const int16_t gamma9001_pcm_data[];
+#endif
 }
 
 #define LOG_TAG "AmyAndroid"
@@ -84,6 +87,9 @@ public:
         /* Physical-string clients can require many simultaneous KS voices. */
         config.ks_oscs = 16;
 
+#ifdef GAMMA9001
+        amy_set_gamma9001_pcm(gamma9001_pcm_data);
+#endif
         amy_start(config);
         mAmyStarted = true;
 

@@ -66,8 +66,10 @@ offer this cumulative release branch to shorepine; only the clean proposal is
 eligible.
 
 LB Omnichord consumes that exact release from `feature/drum_fills`. Its
-implementation commit is `32488d37a25af025eb6fd2cdbc1422341466932a`; follow-up
-`b46dbbe51ba3bd1e9fa86364af7294d9446e52d8` updates only the internal handoff.
+original implementation commit is
+`32488d37a25af025eb6fd2cdbc1422341466932a`; validated follow-up
+`de7b4590570e288fb0fda00d5d37c83e8e521631` fixes the host-side cold-start
+reset race and bass-column layout, while `d7edb9c` updates only the handoff.
 LB keeps all musical policy outside AMY: 54 rhythms, five activity levels,
 270 current fills, fill ordering/density and continuation-role lists. It
 preloads every fill once, reserves pattern IDs 0..999 so the library can grow
@@ -86,6 +88,9 @@ Verification completed before the physical-release gate:
   catalogue realizations render non-silent;
 - LB GitHub Actions run `33328685849`: pass on implementation commit
   `32488d37` with the immutable AMY pin.
+- LB GitHub Actions run `33329576417`: all 192 tests pass on cold-start/layout
+  fix `de7b4590` with the same immutable AMY pin. The new native gate renders
+  the already-visible default percussion level non-silent within one second.
 
 Next actions are intentionally gated: physically validate the LB feature,
 merge it to LB `main` only with explicit user approval, follow the complete

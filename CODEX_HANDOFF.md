@@ -11,7 +11,7 @@ The earlier full Android offers were replaced with a deliberately small,
 portable upstream offer based on current `shorepine/amy:main`.
 
 - Upstream offer branch: `linuxificator/amy:upstream/amy_socket_api_xtra`
-- Offer head: `d90917c2aa165a01a2dbfd9ef6482692d4d5b546`
+- Offer head: `e501d497` (`Document Android integration lessons`)
 - Upstream base used: `81cddfa8610c570a3a255a17ef5dfd81892849bb`
 - Open replacement PR: <https://github.com/shorepine/amy/pull/1147>
 - Closed superseded PR: <https://github.com/shorepine/amy/pull/1136>
@@ -35,6 +35,64 @@ stash@{0}: On feature/bus-mixer: preserve setup.py PCM-bank work before upstream
 Always inspect the current stash list before referring to that numeric stash
 index, because later stashes can renumber it.
 
+## Nested sequencer and LB Omnichord integration
+
+A second, completely separate upstream-quality branch now contains the generic
+sequencer work required by LB Omnichord:
+
+- clean proposal branch: `linuxificator/amy:upstream/nested_sequencer`;
+- upstream base: `81cddfa8610c570a3a255a17ef5dfd81892849bb`;
+- proposal head: `f839df5faa03059c2af2f1532c738c258123dfda`;
+- commits: `d8cab366`, `0e46e6a3`, `f839df5f`;
+- upstream PR: deliberately not created yet.
+
+This branch is free of Codex handoff material, framework integration, drum-kit
+policy and the abandoned bus mixer. It adds stored finite or looping patterns,
+root scheduling, quantized trigger/stop, one supported nested level and a
+generic finite tag-targeted onset mute. Existing sequencer wire commands and C
+API behavior remain unchanged; the new `zQ...` operations are opt-in and have
+matching C/Python surfaces and regression coverage.
+
+The cumulative fork-only AMY release is
+`releases/amy_omnichord_R20260830T191146` at
+`e0ef93c0c8b9c049cf5b37b25d50768cd1136e22`. It descends from the preceding
+Omnichord release, contains the verified Android/Oboe integration, incorporates
+the clean nested commits, explicitly removes the old bus-mixer merge, raises
+the Android nested profile to 1024 definitions / 64 events / 32 active
+instances, and adds the integration-only `AMY_PCM_BANK=tiny` CPython build
+selector. The default CPython build remains Gamma9001 and every variant is
+forced to rebuild because both variants share an extension filename. Never
+offer this cumulative release branch to shorepine; only the clean proposal is
+eligible.
+
+LB Omnichord consumes that exact release from `feature/drum_fills`. Its
+implementation commit is `32488d37a25af025eb6fd2cdbc1422341466932a`; follow-up
+`b46dbbe51ba3bd1e9fa86364af7294d9446e52d8` updates only the internal handoff.
+LB keeps all musical policy outside AMY: 54 rhythms, five activity levels,
+270 current fills, fill ordering/density and continuation-role lists. It
+preloads every fill once, reserves pattern IDs 0..999 so the library can grow
+beyond 700 fills, authors base-role loops at 1000+, and changes live schedules
+only through quantized AMY root commands. Published packages select the tiny
+bank; optional Gamma9001 and complete General-MIDI testing use a matching
+Gamma-enabled build.
+
+Verification completed before the physical-release gate:
+
+- AMY `make ctest`: pass;
+- AMY Python suite at `AMY_TEST_THRESHOLD_DB=-70.0`: 134 pass;
+- PCM build contract: tiny omits Gamma symbols and default includes them;
+- LB local complete matrix: 190 pass;
+- LB native audio smoke: all 13 tiny, 62 Gamma9001 and 24 General-MIDI
+  catalogue realizations render non-silent;
+- LB GitHub Actions run `33328685849`: pass on implementation commit
+  `32488d37` with the immutable AMY pin.
+
+Next actions are intentionally gated: physically validate the LB feature,
+merge it to LB `main` only with explicit user approval, follow the complete
+five-platform release, and only after that succeeds create a shorepine PR from
+`upstream/nested_sequencer`. The PR must not contain this file or any release-,
+Android-, Omnichord- or Codex-specific material.
+
 ## Why the replacement exists
 
 In the review of PR #1136, Brian Whitman explained that shorepine cannot own a
@@ -53,9 +111,10 @@ workflows.
 
 ## Offer branch commits
 
-The offer is four reviewable commits on top of the upstream base:
+The offer is five reviewable commits on top of the upstream base:
 
 ```text
+e501d497 Document Android integration lessons
 d90917c2 Document portable service integrations
 237ff60b Expose Godot backend lifecycle signals
 4104247a Harden Unix socket transport and tests

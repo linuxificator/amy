@@ -37,3 +37,30 @@ The Android frontend remains a wire-protocol client. Platform integration is a
 startup preamble only: it discovers the app-private socket path and connects to
 the separately running AMY service. AMY audio output is Oboe/AAudio, not
 PulseAudio.
+
+## Nested-sequencer integration workflow
+
+The nested-sequencer work follows two deliberately separate histories:
+
+1. `upstream/nested_sequencer` starts directly at Shorepine `main`
+   `81cddfa8610c570a3a255a17ef5dfd81892849bb`. It contains only the reusable
+   AMY engine/API, tests, and public documentation. It does not contain release
+   integrations or internal handoff material.
+2. `releases/amy_omnichord_R20260830T191146` starts at the exact tip of the
+   preceding release, `8c74a1681fa6a3b430ddee9390294bccb8f55a86`, so it keeps
+   the already-tested socket, Android/Oboe, bus-mixer, and release-contract
+   changes. The two nested-sequencer commits are then cherry-picked from the
+   upstream branch. The only conflict was the C-test list: both
+   `test_bus_mixer` and `test_nested_sequencer` are retained.
+3. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
+   as stored patterns, use loop mode for the base rhythm and one-shot mode for
+   fills, and pass all existing platform and release tests.
+4. Only after the complete Omnichord behavior is verified may the clean
+   `upstream/nested_sequencer` branch be proposed to Shorepine. The release
+   branch itself is never the source of that pull request.
+
+This ordering makes LB Omnichord the integration proof without leaking its
+platform-specific code into the reusable upstream proposal. If integration
+finds a generic AMY defect, fix and test it first on `upstream/nested_sequencer`,
+then cherry-pick that additional commit into the current release branch and
+update LB Omnichord's exact SHA pin.

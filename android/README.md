@@ -179,9 +179,11 @@ application itself remains transport-only.
 
 ## Downstream PySide6 package findings
 
-The service AAR from this release was also packaged and released in the
-downstream [LB Omnichord Android application][lb-android-package]. That client
-is useful as a framework-integration reference, but its Qt and Python packaging
+The service AAR at immutable build commit
+`1e81ea571294c6aed8e2c0d57a9e09786561e9cf` from this release branch was also
+packaged and released in the downstream
+[LB Omnichord Android application][lb-android-package]. That client is useful
+as a framework-integration reference, but its Qt and Python packaging
 workarounds are not part of AMY's portable service contract.
 
 The successful package used Python 3.11 and the official

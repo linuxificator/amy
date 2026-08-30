@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""Source-level guard for the Android AAR's public integration contract."""
+
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def require(pattern: str, text: str, label: str) -> None:
+    if re.search(pattern, text, flags=re.MULTILINE) is None:
+        raise AssertionError(f"Android service contract is missing {label}")
+
+
+def main() -> None:
+    engine = (ROOT / "android/amy-service/src/main/cpp/amy_android.cpp").read_text()
+    manifest = (ROOT / "android/amy-service/src/main/AndroidManifest.xml").read_text()
+    hello = (ROOT / "android/hello-world/src/main/java/org/amy/hello/MainActivity.java").read_text()
+
+    require(r"kIntegrationMaxOscillators\s*=\s*336\s*;", engine,
+            "the 336-oscillator host capacity")
+    require(r"kIntegrationMaxBuses\s*=\s*11\s*;", engine,
+            "the 11-bus host capacity")
+    require(r"config\.max_oscs\s*=\s*kIntegrationMaxOscillators\s*;", engine,
+            "runtime oscillator configuration")
+    require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
+            "runtime bus configuration")
+    require(r"android:process=\":amy\"", manifest, "the separate :amy process")
+    require(r"android:exported=\"false\"", manifest, "a private Android component")
+    require(r"\$\{applicationId\}\.amy-autostart", manifest,
+            "an application-scoped provider authority")
+
+    forbidden_client_symbols = ("AmyService", "System.loadLibrary", "native ")
+    for symbol in forbidden_client_symbols:
+        if symbol in hello:
+            raise AssertionError(
+                f"transport-only hello-world unexpectedly contains {symbol!r}"
+            )
+
+    print("Android service contract OK: private :amy process, socket-only client, "
+          "336 oscillators, 11 buses")
+
+
+if __name__ == "__main__":
+    main()

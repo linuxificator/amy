@@ -53,6 +53,8 @@ namespace {
 constexpr int kMaxCommandsPerBlock = 64;
 constexpr int kAudioReadyTimeoutMs = 2000;
 constexpr int kAudioReadyPollMs = 2;
+constexpr uint16_t kIntegrationMaxOscillators = 336;
+constexpr uint16_t kIntegrationMaxBuses = 11;
 
 class AmyAndroidEngine final : public oboe::AudioStreamDataCallback,
                                public oboe::AudioStreamErrorCallback {
@@ -66,6 +68,13 @@ public:
         config.features.audio_in = 0;
         config.features.default_synths = 0;
         config.features.startup_bleep = 0;
+        /*
+         * The integration AAR must accommodate clients with large, explicitly
+         * addressed oscillator and bus layouts. Keep this runtime profile in
+         * sync with the documented Android service contract.
+         */
+        config.max_oscs = kIntegrationMaxOscillators;
+        config.max_buses = kIntegrationMaxBuses;
         /* Keep AMY rendering entirely on Oboe's realtime callback thread. */
         config.platform.multicore = 0;
         config.platform.multithread = 0;
@@ -178,8 +187,10 @@ public:
         }
         mSocket.store(socket, std::memory_order_release);
 
-        LOGI("AMY/Oboe started: %d Hz, %d-frame AMY blocks, socket=%s",
-             AMY_SAMPLE_RATE, AMY_BLOCK_SIZE, socketPath);
+        LOGI("AMY/Oboe started: %d Hz, %d-frame AMY blocks, %u oscs, %u buses, socket=%s",
+             AMY_SAMPLE_RATE, AMY_BLOCK_SIZE,
+             static_cast<unsigned>(config.max_oscs),
+             static_cast<unsigned>(config.max_buses), socketPath);
         return 0;
     }
 

@@ -1,6 +1,9 @@
 name: Android AMY
 
 on:
+  push:
+    branches:
+      - integration/amy_android
   pull_request:
     paths:
       - "android/**"
@@ -8,7 +11,9 @@ on:
       - "tests/test_amy_unix_socket.c"
       - "tests/run_amy_unix_socket_test.sh"
       - "tests/check_android_audio_capture.py"
+      - "tests/test_android_service_contract.py"
       - ".github/workflows/android.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Verify Android service contract
+        run: python3 tests/test_android_service_contract.py
       - name: Build and run private Unix socket test
         run: bash tests/run_amy_unix_socket_test.sh
 
@@ -25,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+
+      - name: Verify Android service contract
+        run: python3 tests/test_android_service_contract.py
 
       - uses: actions/setup-java@v4
         with:

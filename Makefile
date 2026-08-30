@@ -83,7 +83,7 @@ check-c-api:
 	$(PYTHON) scripts/gen_patches_js.py --check
 	$(PYTHON) scripts/gen_pcm_presets_js.py --check
 
-SOURCES += src/algorithms.c src/amy.c src/bus_mixer.c src/envelope.c src/examples.c src/parse.c \
+SOURCES += src/algorithms.c src/amy.c src/envelope.c src/examples.c src/parse.c \
 	src/filters.c src/oscillators.c src/pcm.c src/interp_partials.c src/custom.c \
 	src/delay.c src/log2_exp2.c src/patches.c src/transfer.c src/sequencer.c \
 	src/libminiaudio-audio.c src/instrument.c src/amy_midi.c src/api.c src/midi_mappings.c \
@@ -125,7 +125,7 @@ amy-message: $(OBJECTS) src/amy-message.o
 # rollovers 50 days out, which you can only hit by fast-forwarding the counters.
 CTESTS = tests/test_clock_wrap tests/test_sequencer_active tests/test_sequencer_bounds \
          tests/test_nested_sequencer \
-         tests/test_bus_config tests/test_bus_mixer tests/test_patch_slots \
+         tests/test_bus_config tests/test_patch_slots \
          tests/test_synth_readout tests/test_log2_lut tests/test_clone_on_grow \
          tests/test_timebase_reset tests/test_osc_free_on_release \
          tests/test_voice_osc_range tests/test_dist_coefs tests/test_dist_scope

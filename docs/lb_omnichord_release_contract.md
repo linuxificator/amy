@@ -24,19 +24,23 @@ declared AMY release input.
 
 ## This release
 
-This initial release combines:
+The initial experimental release combined:
 
 - shorepine `main` at `81cddfa8610c570a3a255a17ef5dfd81892849bb`;
 - the private Unix socket API and Android AMY/Oboe service from
   `integration/amy_android`;
-- the LB Omnichord bus-mixer implementation used by native desktop tests and
-  packages; and
+- an experimental LB Omnichord bus-mixer implementation; and
 - the internal `work/codex_info` handoff.
 
 The Android frontend remains a wire-protocol client. Platform integration is a
 startup preamble only: it discovers the app-private socket path and connects to
 the separately running AMY service. AMY audio output is Oboe/AAudio, not
 PulseAudio.
+
+The bus-mixer experiment was subsequently abandoned. It is deliberately absent
+from the current release line and from all upstream proposals. Omnichord rhythm
+fills must use the nested sequencer's event gating and must not depend on a
+private audio-routing extension.
 
 ## Nested-sequencer integration workflow
 
@@ -48,10 +52,9 @@ The nested-sequencer work follows two deliberately separate histories:
    integrations or internal handoff material.
 2. `releases/amy_omnichord_R20260830T191146` starts at the exact tip of the
    preceding release, `8c74a1681fa6a3b430ddee9390294bccb8f55a86`, so it keeps
-   the already-tested socket, Android/Oboe, bus-mixer, and release-contract
-   changes. The two nested-sequencer commits are then cherry-picked from the
-   upstream branch. The only conflict was the C-test list: both
-   `test_bus_mixer` and `test_nested_sequencer` are retained.
+   the already-tested socket, Android/Oboe, and release-contract changes. The
+   abandoned bus-mixer merge is explicitly reversed, and the two
+   nested-sequencer commits are cherry-picked from the upstream branch.
 3. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
    as stored patterns, use loop mode for the base rhythm and one-shot mode for
    fills, and pass all existing platform and release tests.

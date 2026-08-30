@@ -19,6 +19,9 @@ def main() -> None:
         ROOT / "android/amy-service/src/main/cpp/amy_android_capture.cpp"
     ).read_text()
     gradle = (ROOT / "android/amy-service/build.gradle.kts").read_text()
+    cmake = (
+        ROOT / "android/amy-service/src/main/cpp/CMakeLists.txt"
+    ).read_text()
     manifest = (ROOT / "android/amy-service/src/main/AndroidManifest.xml").read_text()
     hello = (ROOT / "android/hello-world/src/main/java/org/amy/hello/MainActivity.java").read_text()
 
@@ -34,6 +37,12 @@ def main() -> None:
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
             "the PySide-compatible Android NDK r27c")
+    require(r"gamma9001-blob-c", cmake,
+            "per-ABI Gamma9001 blob generation")
+    require(r"GAMMA9001=1", cmake,
+            "the Gamma9001 AMY compile profile")
+    require(r"\$\{GAMMA9001_PCM_C\}", cmake,
+            "the linked Gamma9001 PCM source")
     require(r"android:process=\":amy\"", manifest, "the separate :amy process")
     require(r"android:exported=\"false\"", manifest, "a private Android component")
     require(r"\$\{applicationId\}\.amy-autostart", manifest,
@@ -47,7 +56,7 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "336 oscillators, 11 buses, 8-second test capture")
+          "Gamma9001 PCM, 336 oscillators, 11 buses, 8-second test capture")
 
 
 if __name__ == "__main__":

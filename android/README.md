@@ -46,7 +46,11 @@ intentional and preserves the private-socket security model. See
 ## Audio profile
 
 The Android native build uses AMY's existing 48 kHz / 128-frame build profile
-and defines `AMY_NO_MINIAUDIO`; Oboe is the sole audio backend.
+and defines `AMY_NO_MINIAUDIO`; Oboe is the sole audio backend. This LB release
+profile also defines `GAMMA9001`. CMake invokes the stdlib-only
+`python -m amy.headers gamma9001-blob-c` generator for each ABI build directory
+and links that private generated source into the service, so presets 0-18 use
+the Gamma808 ROM and presets 256-391 use the complete Gamma9001 sample blob.
 
 The marker-gated CI capture records eight seconds from both AMY's rendered
 samples and the exact buffer handed to Oboe. This leaves a packaged framework

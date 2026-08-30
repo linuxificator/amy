@@ -91,6 +91,18 @@ The nested-sequencer work follows two deliberately separate histories:
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
    branch itself is never the source of that pull request.
 
+7. `releases/amy_omnichord_R20260831T001253` starts at the exact tip of the
+   preceding release, `32f3a68861a68979ceb715cf32e0322e8614365b`. It is the
+   first LB release profile which deliberately builds Gamma9001 on every
+   locally hosted target. CPython retains its existing Gamma9001 default. The
+   Android AAR defines `GAMMA9001` and generates its linkable sample blob in a
+   private per-ABI build directory. Native downstream builds use the same
+   `gamma9001-blob-c` generator and must link its output while defining
+   `GAMMA9001`. Consequently PCM presets 0-18 consistently mean the Gamma808
+   ROM bank on these targets, and LB must select its Gamma9001 instrument
+   mapping rather than the tiny mapping. No wire operation or sequencer
+   behavior changes.
+
 Live fill schedules use AMY's root `zQA` trigger scheduler. Replacing or
 clearing those ordinary root tags changes only future fill launches: a
 one-shot which is already active retains its immutable definition and finishes.

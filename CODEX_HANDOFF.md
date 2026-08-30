@@ -42,8 +42,8 @@ sequencer work required by LB Omnichord:
 
 - clean proposal branch: `linuxificator/amy:upstream/nested_sequencer`;
 - upstream base: `81cddfa8610c570a3a255a17ef5dfd81892849bb`;
-- proposal head: `f839df5faa03059c2af2f1532c738c258123dfda`;
-- commits: `d8cab366`, `0e46e6a3`, `f839df5f`;
+- proposal head: `fb4a37f448a0366b33cc50ff51182234aee84315`;
+- commits: `d8cab366`, `0e46e6a3`, `f839df5f`, `fb4a37f4`;
 - upstream PR: deliberately not created yet.
 
 This branch is free of Codex handoff material, framework integration, drum-kit
@@ -53,9 +53,18 @@ generic finite tag-targeted onset mute. Existing sequencer wire commands and C
 API behavior remain unchanged; the new `zQ...` operations are opt-in and have
 matching C/Python surfaces and regression coverage.
 
+The final commit removes the experimental pattern `lane` and `priority`
+fields, their implicit onset-suppression policy, and the associated test and
+documentation. Shorepine AMY did not provide those concepts, and LB no longer
+uses them: explicit finite `zQM` mutes make the continuation choice visible in
+the sequence and keep musical policy outside AMY. `zQB` and
+`amy_pattern_begin()` now accept only pattern ID and length. The clean proposal
+is 1,543 insertions / 9 deletions versus upstream main, including 474 lines of
+standalone C regression coverage.
+
 The cumulative fork-only AMY release is
-`releases/amy_omnichord_R20260830T191146` at
-`e0ef93c0c8b9c049cf5b37b25d50768cd1136e22`. It descends from the preceding
+`releases/amy_omnichord_R20260830T211550` at
+`57a97d7f5399f00afff0d498e060b53b8cd305c4`. It descends from the preceding
 Omnichord release, contains the verified Android/Oboe integration, incorporates
 the clean nested commits, explicitly removes the old bus-mixer merge, raises
 the Android nested profile to 1024 definitions / 64 events / 32 active
@@ -70,6 +79,8 @@ original implementation commit is
 `32488d37a25af025eb6fd2cdbc1422341466932a`; validated follow-up
 `de7b4590570e288fb0fda00d5d37c83e8e521631` fixes the host-side cold-start
 reset race and bass-column layout, while `d7edb9c` updates only the handoff.
+Commit `b836bfd` removes LB's neutral `0,0` pattern-overlay arguments and pins
+the new exact AMY release in every workflow and platform document.
 LB keeps all musical policy outside AMY: 54 rhythms, five activity levels,
 270 current fills, fill ordering/density and continuation-role lists. It
 preloads every fill once, reserves pattern IDs 0..999 so the library can grow
@@ -83,7 +94,8 @@ Verification completed before the physical-release gate:
 - AMY `make ctest`: pass;
 - AMY Python suite at `AMY_TEST_THRESHOLD_DB=-70.0`: 134 pass;
 - PCM build contract: tiny omits Gamma symbols and default includes them;
-- LB local complete matrix: 190 pass;
+- LB local complete matrix: 192 pass at `b836bfd` with the minimal two-argument
+  pattern-begin wire format;
 - LB native audio smoke: all 13 tiny, 62 Gamma9001 and 24 General-MIDI
   catalogue realizations render non-silent;
 - LB GitHub Actions run `33328685849`: pass on implementation commit

@@ -134,7 +134,7 @@ Requirements used by CI:
 
 - JDK 17
 - Android SDK platform 36
-- Android NDK 27.0.12077973
+- Android NDK 27.2.12479018 (r27c)
 - CMake 3.22.1
 - Gradle 8.13
 - Android Gradle Plugin 8.13.2

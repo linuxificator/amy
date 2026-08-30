@@ -49,7 +49,7 @@ jobs:
           sdkmanager \
             "platforms;android-36" \
             "build-tools;35.0.0" \
-            "ndk;27.0.12077973" \
+            "ndk;27.2.12479018" \
             "cmake;3.22.1"
 
       - uses: gradle/actions/setup-gradle@v4

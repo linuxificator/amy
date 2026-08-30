@@ -15,6 +15,7 @@ def require(pattern: str, text: str, label: str) -> None:
 
 def main() -> None:
     engine = (ROOT / "android/amy-service/src/main/cpp/amy_android.cpp").read_text()
+    gradle = (ROOT / "android/amy-service/build.gradle.kts").read_text()
     manifest = (ROOT / "android/amy-service/src/main/AndroidManifest.xml").read_text()
     hello = (ROOT / "android/hello-world/src/main/java/org/amy/hello/MainActivity.java").read_text()
 
@@ -26,6 +27,8 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
+    require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
+            "the PySide-compatible Android NDK r27c")
     require(r"android:process=\":amy\"", manifest, "the separate :amy process")
     require(r"android:exported=\"false\"", manifest, "a private Android component")
     require(r"\$\{applicationId\}\.amy-autostart", manifest,

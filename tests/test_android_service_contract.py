@@ -49,6 +49,8 @@ def main() -> None:
             "the Gamma9001 AMY compile profile")
     require(r"\$\{GAMMA9001_PCM_C\}", cmake,
             "the linked Gamma9001 PCM source")
+    require(r"amy_set_gamma9001_pcm\(gamma9001_pcm_data\)", engine,
+            "Gamma9001 PCM registration before AMY starts")
     require(r"android:process=\":amy\"", manifest, "the separate :amy process")
     require(r"android:exported=\"false\"", manifest, "a private Android component")
     require(r"\$\{applicationId\}\.amy-autostart", manifest,

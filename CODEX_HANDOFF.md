@@ -103,6 +103,9 @@ Verification completed before the physical-release gate:
 - LB GitHub Actions run `33329576417`: all 192 tests pass on cold-start/layout
   fix `de7b4590` with the same immutable AMY pin. The new native gate renders
   the already-visible default percussion level non-silent within one second.
+- LB GitHub Actions run `33330732808`: all 192 tests pass at `b836bfd` after
+  cloning and verifying release `57a97d7f5399f00afff0d498e060b53b8cd305c4`;
+  this is the first hosted run of the minimal two-argument pattern-begin API.
 
 Next actions are intentionally gated: physically validate the LB feature,
 merge it to LB `main` only with explicit user approval, follow the complete

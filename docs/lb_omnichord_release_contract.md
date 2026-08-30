@@ -59,6 +59,12 @@ Desktop Linux and macOS use the same frontend wire protocol over a private
 Unix socket. Windows may use its wrapper/named-pipe transport, but the AMY
 message stream and frontend logic stay platform-independent.
 
+The Android AAR defines `GAMMA9001` and generates its linkable sample blob in
+a private per-ABI build directory. Native downstream builds use the same
+`gamma9001-blob-c` generator and link its output while defining `GAMMA9001`.
+Consequently PCM presets 0-18 consistently mean the Gamma808 ROM bank on these
+targets; this profile changes no wire or sequencer semantics.
+
 The CPython `AMY_PCM_BANK` build selector is release/build policy rather than
 generic sequencer behavior. `AMY_PCM_BANK=tiny` omits Gamma9001; the default
 for this release line is Gamma9001. Both choices force a fresh extension build

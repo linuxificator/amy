@@ -2,9 +2,31 @@ cmake_minimum_required(VERSION 3.22.1)
 project(amy_android LANGUAGES C CXX)
 
 find_package(oboe REQUIRED CONFIG)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(AMY_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..")
 set(AMY_SRC "${AMY_ROOT}/src")
+set(GAMMA9001_PCM_C "${CMAKE_CURRENT_BINARY_DIR}/drums_bin.c")
+file(GLOB_RECURSE GAMMA9001_PCM_INPUTS CONFIGURE_DEPENDS
+    "${AMY_ROOT}/sounds/gamma9001/*.wav"
+)
+
+# Generate the large linkable sample blob inside each ABI's private build
+# directory.  The tracked maps remain source inputs; parallel Android ABI
+# builds never rewrite or share a generated C file in the checkout.
+add_custom_command(
+    OUTPUT "${GAMMA9001_PCM_C}"
+    COMMAND "${Python3_EXECUTABLE}" -m amy.headers
+            gamma9001-blob-c "${GAMMA9001_PCM_C}"
+    WORKING_DIRECTORY "${AMY_ROOT}"
+    DEPENDS
+        "${AMY_ROOT}/amy/headers.py"
+        "${AMY_ROOT}/sounds/gamma9001/manifest.json"
+        ${GAMMA9001_PCM_INPUTS}
+    COMMENT "Generating Gamma9001 PCM blob"
+    VERBATIM
+)
+set_source_files_properties("${GAMMA9001_PCM_C}" PROPERTIES GENERATED TRUE)
 
 set(AMY_SOURCES
     ${AMY_SRC}/algorithms.c
@@ -33,6 +55,7 @@ add_library(amy_android SHARED
     amy_android.cpp
     amy_android_capture.cpp
     amy_android_profile.cpp
+    ${GAMMA9001_PCM_C}
     ${AMY_SOURCES}
 )
 
@@ -54,6 +77,7 @@ target_compile_definitions(amy_android PRIVATE
     AMY_HOST_MIDI=1
     AMY_NO_MINIAUDIO=1
     AMY_WAVETABLE=1
+    GAMMA9001=1
 )
 
 target_compile_options(amy_android PRIVATE

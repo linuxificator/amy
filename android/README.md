@@ -48,6 +48,11 @@ intentional and preserves the private-socket security model. See
 The Android native build uses AMY's existing 48 kHz / 128-frame build profile
 and defines `AMY_NO_MINIAUDIO`; Oboe is the sole audio backend.
 
+The marker-gated CI capture records eight seconds from both AMY's rendered
+samples and the exact buffer handed to Oboe. This leaves a packaged framework
+runtime enough startup time before UI-driven notes while remaining a one-shot,
+test-only path; ordinary applications never allocate the capture buffers.
+
 Oboe requests:
 
 - stereo signed 16-bit output

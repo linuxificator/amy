@@ -15,7 +15,10 @@
 
 namespace {
 
-constexpr int32_t kCaptureSeconds = 4;
+// Leave enough room for a packaged framework client to extract/start its
+// runtime and still exercise real UI-driven notes.  Four seconds was enough
+// for the Java hello-world, but could end during a Qt/Python synth attack.
+constexpr int32_t kCaptureSeconds = 8;
 constexpr const char *kEnableMarker = "amy-audio-capture.enable";
 constexpr const char *kAmyWave = "amy-render.wav";
 constexpr const char *kOboeWave = "amy-oboe.wav";

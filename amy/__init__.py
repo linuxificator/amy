@@ -9,6 +9,12 @@ try:
 except ImportError:
     _amy = None
 
+# The AMY release this package came from. Kept in sync with library.properties by
+# .github/workflows/release.yml, which rewrites the line below in the same commit
+# it tags -- so amy.version always matches the release tag it shipped in. Edit
+# with the workflow, not by hand.
+version = '1.2.162'
+
 # BEGIN GENERATED - scripts/gen_amy_c_api.py
 # One backend resolver per C API function: prefer the CPython c_amy
 # module, then the linked-MicroPython tulip module. On web builds both
@@ -244,7 +250,7 @@ _KW_MAP_LIST = [   # Order matters because patch_string must come last.
     ('eg0', 'AL'), ('eg1', 'BL'),  # Aliases for bp0 and bp1
     ('eg0_type', 'TI'), ('eg1_type', 'XI'), ('debug', 'DI'), ('chained_osc', 'cI'),
     ('mod_source', 'LL'),  ('eq', 'xL'), ('filter_type', 'GI'), ('ratio', 'IF'), ('latency_ms', 'NI'),
-    ('dist_clip', 'GCI'), ('dist_fold', 'GFI'), ('dist_crush', 'GHL'), ('dist_drive', 'GDF'), ('dist_mix', 'GMF'),
+    ('dist_clip', 'GCI'), ('dist_fold', 'GFI'), ('dist_crush', 'GHL'), ('dist_drive', 'GDC'), ('dist_mix', 'GMC'),
     ('algo_source', 'OL'), ('load_sample', 'zL'), ('transfer_file', 'zTL'), ('disk_sample', 'zFL'),
     ('algorithm', 'oI'), ('chorus', 'kL'), ('reverb', 'hL'), ('echo', 'ML'), ('patch', 'KI'),
     ('external_channel', 'WI'), ('portamento', 'mI'), ('tempo', 'jF'), ('sequencer_run', 'zYI'),

@@ -57,10 +57,19 @@ The nested-sequencer work follows two deliberately separate histories:
    nested-sequencer commits are cherry-picked from the upstream branch.
 3. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
    as stored patterns, use loop mode for the base rhythm and one-shot mode for
-   fills, and pass all existing platform and release tests.
+   fills, and pass all existing platform and release tests. Each logical
+   percussion role is a tagged loop instance. A fill stores generic `zQM`
+   events for the role instances it suppresses; deciding which musical roles
+   continue is exclusively LB Omnichord policy and is not AMY engine code.
 4. Only after the complete Omnichord behavior is verified may the clean
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
-   branch itself is never the source of that pull request.
+branch itself is never the source of that pull request.
+
+Live fill schedules use AMY's root `zQA` trigger scheduler. Replacing or
+clearing those ordinary root tags changes only future fill launches: a
+one-shot which is already active retains its immutable definition and finishes.
+This keeps the frontend wire-only and avoids a host timer which tries to follow
+AMY's musical clock.
 
 This ordering makes LB Omnichord the integration proof without leaking its
 platform-specific code into the reusable upstream proposal. If integration

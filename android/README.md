@@ -177,6 +177,58 @@ AAR/NDK/Oboe build and emulator end-to-end test. The emulator arms its own
 one-shot audio-capture marker before starting the client; the hello-world
 application itself remains transport-only.
 
+## Downstream PySide6 package findings
+
+The service AAR from this release was also packaged and released in the
+downstream [LB Omnichord Android application][lb-android-package]. That client
+is useful as a framework-integration reference, but its Qt and Python packaging
+workarounds are not part of AMY's portable service contract.
+
+The successful package used Python 3.11 and the official
+`pyside6-android-deploy` command with matching PySide6 and shiboken6 6.11.2
+Android wheels. The command generated the Qt deployment files and
+`buildozer.spec`; the downstream build then added this AAR and its Oboe Prefab
+dependency to the generated Gradle package. Qt's command uses
+Buildozer/python-for-android as host-side packaging tools. Kivy is not an
+application or runtime dependency and is not included in the APK.
+
+Those tools were reproducible only as one pinned set: Android SDK 36, NDK
+27.2.12479018, python-for-android commit
+`3762c88c56e3443efb8eba2a02a2604b680240fd`, and Cython 0.29.36. The build also
+had to expose the modern SDK manager at Buildozer 1.5's expected legacy path
+and add python-for-android's local `libs` directory to Gradle repositories so
+the AAR supplied with `--add-aar` could be resolved. The package regression
+checks the requested AAR and wheel ABIs, verifies that the APK contains the
+AMY/Oboe and matching CPython/shiboken libraries, and rejects an accidental
+in-process `c_amy` or `libamy.so` frontend binding.
+
+On Android the Qt client discovers the application-private files directory
+with `QStandardPaths` and appends `amy.sock`; it does not hard-code an Android
+user or `/data/user/...` path. The frontend and unexported `:amy` service then
+remain separate processes under the same application UID.
+
+python-for-android extracts its private Python/Qt payload on first launch. In
+an emulator that extraction can consume a measured audio window, and an
+occasional Qt/JNI startup race can terminate that first process. The downstream
+test therefore retries only an unmeasured extraction warm-up, force-stops the
+whole package, and keeps the subsequent measured UI/audio launch single-shot.
+This avoids hiding failures in the behavior under test.
+
+A Linux-hosted emulator may print a host PulseAudio (`pa`) warning even though
+the Android application never uses PulseAudio. The downstream gate separately
+requires the guest service to report Oboe/AAudio, captures the signed-16-bit
+samples rendered by AMY and handed to Oboe, and requires them to match exactly.
+It also checks non-silence and clipping independently. Its `-26 dBFS` floor is
+specific to LB Omnichord's deliberate `V1` master limit (20 dB below AMY's raw
+`V10` unity setting) plus 6 dB of patch/phase headroom; it is not a general AMY
+test threshold.
+
+[LB Omnichord release R20260830T153747][lb-release] passed that packaged
+PySide6 test with 384000 stereo frames at 48 kHz, no clipping, and zero sample
+mismatches between AMY and Oboe. Its arm64 APK is CI debug-signed for sideload
+and emulator testing, not for a store or stable update channel. Physical
+touchscreen, speaker, route-change and latency validation remains outstanding.
+
 ## Hardware-test items
 
 The first device tests should measure:
@@ -187,3 +239,6 @@ The first device tests should measure:
 4. suspend/resume and audio-device changes;
 5. whether executing rare heavy AMY commands at a block boundary needs further
    separation from the realtime callback.
+
+[lb-android-package]: https://github.com/linuxificator/LB_Omnichord/blob/f8724328b2e679533c7f3b97cee939e009b7eba7/amysynth_version/qt_frontend/packaging/android/README.md
+[lb-release]: https://github.com/linuxificator/LB_Omnichord/releases/tag/R20260830T153747

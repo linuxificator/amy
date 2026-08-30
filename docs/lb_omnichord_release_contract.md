@@ -62,15 +62,20 @@ The nested-sequencer work follows two deliberately separate histories:
    the already-tested socket, Android/Oboe, and release-contract changes. The
    abandoned bus-mixer merge is explicitly reversed, and the two
    nested-sequencer commits are cherry-picked from the upstream branch.
-3. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
+3. `releases/amy_omnichord_R20260830T211550` starts at the exact tip of that
+   release, `e0ef93c0c8b9c049cf5b37b25d50768cd1136e22`. It removes the
+   experimental pattern lane/priority overlay from both the clean upstream
+   proposal and the internal release. LB uses explicit finite tag mutes, so
+   the implicit overlay policy was redundant and did not belong in AMY.
+4. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
    as stored patterns, use loop mode for the base rhythm and one-shot mode for
    fills, and pass all existing platform and release tests. Each logical
    percussion role is a tagged loop instance. A fill stores generic `zQM`
    events for the role instances it suppresses; deciding which musical roles
    continue is exclusively LB Omnichord policy and is not AMY engine code.
-4. Only after the complete Omnichord behavior is verified may the clean
+5. Only after the complete Omnichord behavior is verified may the clean
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
-branch itself is never the source of that pull request.
+   branch itself is never the source of that pull request.
 
 Live fill schedules use AMY's root `zQA` trigger scheduler. Replacing or
 clearing those ordinary root tags changes only future fill launches: a

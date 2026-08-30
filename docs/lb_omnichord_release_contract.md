@@ -22,6 +22,13 @@ declared SHA and that the declared release branch contains it. A release must
 not be published unless its platform packages and regression gates all use the
 declared AMY release input.
 
+This release line also provides the integration-only `AMY_PCM_BANK` build
+selector used by LB packaging. `AMY_PCM_BANK=tiny` omits Gamma9001; both bank
+choices force a fresh extension rebuild because their output filename is the
+same. The default remains AMY's Gamma9001 CPython build.
+This selector is wrapper/build policy and is deliberately absent from the
+clean `upstream/nested_sequencer` proposal.
+
 ## This release
 
 The initial experimental release combined:

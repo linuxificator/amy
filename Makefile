@@ -146,6 +146,7 @@ amy-module: amy-example
 
 test: amy-module
 	${PYTHON} -m amy.test
+	${PYTHON} tests/test_python_offline_live.py
 
 qtest: amy-module
 	${PYTHON} -m amy.test quiet

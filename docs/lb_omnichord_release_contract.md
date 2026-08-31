@@ -73,13 +73,21 @@ The nested-sequencer work follows two deliberately separate histories:
    authoring is now `zQE`, so every new nested-pattern operation shares the
    existing `zQ` extended-control family and no new top-level wire command is
    introduced. The legacy root `H` grammar and parser path remain unchanged.
-5. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
+5. `releases/amy_omnichord_R20260831T042456` starts at the exact tip of that
+   release, `32f3a68861a68979ceb715cf32e0322e8614365b`. Its CPython `live()`
+   wrapper accepts `audio=False`, preserving all runtime sizing options while
+   leaving rendering exclusively under `c_amy.render_to_list()` control. The
+   default remains live miniaudio, so existing applications do not change.
+   LB's native regression bridge uses offline mode to prevent a system-audio
+   callback and the deterministic test renderer from consuming the same AMY
+   stream concurrently.
+6. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
    as stored patterns, use loop mode for the base rhythm and one-shot mode for
    fills, and pass all existing platform and release tests. Each logical
    percussion role is a tagged loop instance. A fill stores generic `zQM`
    events for the role instances it suppresses; deciding which musical roles
    continue is exclusively LB Omnichord policy and is not AMY engine code.
-6. Only after the complete Omnichord behavior is verified may the clean
+7. Only after the complete Omnichord behavior is verified may the clean
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
    branch itself is never the source of that pull request.
 

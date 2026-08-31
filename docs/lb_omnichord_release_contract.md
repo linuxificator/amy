@@ -1,85 +1,85 @@
-# LB Omnichord release contract
+# LB Omnichord AMY release contract
 
-LB Omnichord consumes AMY only from a fork branch named
-`releases/amy_omnichord_R<YYYYMMDD>T<HHMMSS>`. A consumer must pin both that
-branch name and its exact commit SHA. The branch is useful context for people;
-the SHA is the immutable, reproducible build input and must be recorded in the
-LB Omnichord GitHub release notes.
+LB Omnichord consumes AMY from a fork release branch named
+`releases/amy_omnichord_R<YYYYMMDD>T<HHMMSS>`. The consumer records both the
+branch and exact commit SHA. The branch explains provenance; the SHA is the
+immutable build input used by every platform package.
 
-The fork's `main` branch is a fast-forward mirror of `shorepine/amy` `main`.
-Feature work is never merged into it. Before creating a new Omnichord release,
-fetch shorepine, fast-forward the fork's `main` when necessary, and incorporate
-those upstream changes into the new release branch.
+The fork's `main` remains a fast-forward mirror of `shorepine/amy` `main`.
+Generic changes are developed on a clean upstream-directed branch. A release
+branch layers the tested platform and application profile on that clean work;
+it is never itself offered upstream.
 
-The first Omnichord release branch combines the tested LB integrations. Every
-later Omnichord release branch starts from the preceding release branch, then
-adds the verified upstream and integration changes for that release. Release
-branches also contain the internal `work/codex_info` handoff material; upstream
-offer branches must remain free of that internal material.
+## Current line
 
-LB Omnichord CI must verify that a clone checked out by SHA resolves to the
-declared SHA and that the declared release branch contains it. A release must
-not be published unless its platform packages and regression gates all use the
-declared AMY release input.
+`releases/amy_omnichord_R20260903T201525` starts with:
 
-This release line also provides the integration-only `AMY_PCM_BANK` build
-selector used by LB packaging. `AMY_PCM_BANK=tiny` omits Gamma9001; both bank
-choices force a fresh extension rebuild because their output filename is the
-same. The default remains AMY's Gamma9001 CPython build.
-This selector is wrapper/build policy and is deliberately absent from the
-clean `upstream/nested_sequencer` proposal.
+- Shorepine main `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`;
+- the generic sequencer-group work from `rework/sequencer`;
+- the private Unix-socket service and Android Oboe integration;
+- the Gamma9001 hosted drum bank profile;
+- deterministic offline CPython startup for tests; and
+- the larger bounded sequencer-group capacity required by the rhythm
+  catalogue.
 
-## This release
+The abandoned bus-mixer experiment is not part of this line. AMY's generic
+bus support remains whatever is present in Shorepine main; no private mixer
+module or routing policy is restored.
 
-The initial experimental release combined:
+## Sequencer boundary
 
-- shorepine `main` at `81cddfa8610c570a3a255a17ef5dfd81892849bb`;
-- the private Unix socket API and Android AMY/Oboe service from
-  `integration/amy_android`;
-- an experimental LB Omnichord bus-mixer implementation; and
-- the internal `work/codex_info` handoff.
+The clean `rework/sequencer` branch contains only generic AMY behavior:
 
-The Android frontend remains a wire-protocol client. Platform integration is a
-startup preamble only: it discovers the app-private socket path and connects to
-the separately running AMY service. AMY audio output is Oboe/AAudio, not
-PulseAudio.
+- grouped events use `ticks=tick,period,event_tag,group_tag`;
+- one `sequence_control` family publishes, starts, stops, gates and clears;
+- active executions retain immutable published revisions;
+- one, N and infinite repeats share the same repeat-count model;
+- quantization uses AMY's own sequencer clock; and
+- a root event may launch a group, while a group cannot launch another group.
 
-The bus-mixer experiment was subsequently abandoned. It is deliberately absent
-from the current release line and from all upstream proposals. Omnichord rhythm
-fills must use the nested sequencer's event gating and must not depend on a
-private audio-routing extension.
+LB Omnichord owns all musical policy: which rhythm roles become groups, which
+ones a fill gates, which arpeggios may overlap, group/tag allocation and root
+arrangement schedules. The frontend remains a wire-protocol client and never
+imports or calls AMY engine internals.
 
-## Nested-sequencer integration workflow
+The release profile uses 1,024 group slots, 64 local event tags per group and
+32 active or pending executions. The high group count stores the complete fill
+catalogue; it does not create 1,024 players. Event tables are allocated lazily
+only for definitions that are actually authored.
 
-The nested-sequencer work follows two deliberately separate histories:
+## Platform boundary
 
-1. `upstream/nested_sequencer` starts directly at Shorepine `main`
-   `81cddfa8610c570a3a255a17ef5dfd81892849bb`. It contains only the reusable
-   AMY engine/API, tests, and public documentation. It does not contain release
-   integrations or internal handoff material.
-2. `releases/amy_omnichord_R20260830T191146` starts at the exact tip of the
-   preceding release, `8c74a1681fa6a3b430ddee9390294bccb8f55a86`, so it keeps
-   the already-tested socket, Android/Oboe, and release-contract changes. The
-   abandoned bus-mixer merge is explicitly reversed, and the two
-   nested-sequencer commits are cherry-picked from the upstream branch.
-3. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
-   as stored patterns, use loop mode for the base rhythm and one-shot mode for
-   fills, and pass all existing platform and release tests. Each logical
-   percussion role is a tagged loop instance. A fill stores generic `zQM`
-   events for the role instances it suppresses; deciding which musical roles
-   continue is exclusively LB Omnichord policy and is not AMY engine code.
-4. Only after the complete Omnichord behavior is verified may the clean
-   `upstream/nested_sequencer` branch be proposed to Shorepine. The release
-branch itself is never the source of that pull request.
+On Android, the Qt frontend and the unexported `:amy` service are separate
+processes under the same application UID. The frontend discovers the
+application-private socket path and sends only AMY wire messages. Audio is
+rendered by the service and handed to Oboe/AAudio. The service is built at 48
+kHz with 128-frame stereo blocks.
 
-Live fill schedules use AMY's root `zQA` trigger scheduler. Replacing or
-clearing those ordinary root tags changes only future fill launches: a
-one-shot which is already active retains its immutable definition and finishes.
-This keeps the frontend wire-only and avoids a host timer which tries to follow
-AMY's musical clock.
+Desktop Linux and macOS use the same frontend wire protocol over a private
+Unix socket. Windows may use its wrapper/named-pipe transport, but the AMY
+message stream and frontend logic stay platform-independent.
 
-This ordering makes LB Omnichord the integration proof without leaking its
-platform-specific code into the reusable upstream proposal. If integration
-finds a generic AMY defect, fix and test it first on `upstream/nested_sequencer`,
-then cherry-pick that additional commit into the current release branch and
-update LB Omnichord's exact SHA pin.
+The CPython `AMY_PCM_BANK` build selector is release/build policy rather than
+generic sequencer behavior. `AMY_PCM_BANK=tiny` omits Gamma9001; the default
+for this release line is Gamma9001. Both choices force a fresh extension build
+because they share an output filename.
+
+`amy.live(audio=AMY_AUDIO_IS_NONE, ...)` is the deterministic test mode. The
+default remains live miniaudio, preserving existing callers. Offline mode
+prevents a system-audio callback and a deterministic renderer from consuming
+the same AMY stream concurrently.
+
+## Release procedure
+
+1. Verify fork main exactly matches the chosen Shorepine main.
+2. Test generic work on the clean upstream-directed branch.
+3. Create the release branch and add only required fork integrations.
+4. Run native AMY, wire/socket, PCM-bank, offline and Android contract tests.
+5. Pin the final release branch and SHA in LB Omnichord configuration and
+   packaging inputs.
+6. Run LB Omnichord's generic and platform-specific suites against that same
+   SHA.
+7. Record the exact AMY SHA in release notes and keep diagnostic commits.
+
+ESP32 validation is deliberately deferred for this rework; it must be
+completed before claiming ESP32 support for the resulting release.

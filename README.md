@@ -112,6 +112,11 @@ In Python:
 >>> # play MIDI notes using system MIDI
 ```
 
+`amy.live(audio=False, ...)` applies the same runtime configuration without
+starting a system-audio callback. This is intended for deterministic offline
+rendering with `c_amy.render_to_list()`; omitting `audio` retains the existing
+live-audio behavior.
+
 In C: 
 
 ```c

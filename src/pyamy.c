@@ -21,7 +21,12 @@ static int parse_live_kwarg(amy_config_t *cfg, const char *key, PyObject *value)
     long lv = 0;
     long long llv = 0;
 
-    if (strcmp(key, "chorus") == 0) {
+    if (strcmp(key, "audio") == 0) {
+        int enabled = PyObject_IsTrue(value);
+        if (enabled < 0) return -1;
+        cfg->audio = enabled ? AMY_AUDIO_IS_MINIAUDIO : AMY_AUDIO_IS_NONE;
+        return 0;
+    } else if (strcmp(key, "chorus") == 0) {
         lv = PyLong_AsLong(value);
         if (PyErr_Occurred()) return -1;
         cfg->features.chorus = (lv != 0);
@@ -171,6 +176,10 @@ static PyObject * live_wrapper(PyObject *self, PyObject *args, PyObject *kwargs)
     // running AMY: a rejected kwarg then leaves audio playing instead of
     // silently killing it (and leaving AMY stopped for the next live() call).
     amy_config_t amy_config = amy_default_config();
+    // live() has always meant system audio by default.  Callers which render
+    // deterministically with render_to_list() can opt out of the independent
+    // miniaudio callback while retaining every runtime sizing kwarg.
+    amy_config.audio = AMY_AUDIO_IS_MINIAUDIO;
     Py_ssize_t pos = 0;
     PyObject *key_obj = NULL;
     PyObject *value_obj = NULL;
@@ -188,7 +197,6 @@ static PyObject * live_wrapper(PyObject *self, PyObject *args, PyObject *kwargs)
         }
     }
 
-    amy_config.audio = AMY_AUDIO_IS_MINIAUDIO;
     amy_stop();
     amy_start(amy_config); // initializes amy
     Py_RETURN_NONE;

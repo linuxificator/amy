@@ -81,27 +81,29 @@ The nested-sequencer work follows two deliberately separate histories:
    LB's native regression bridge uses offline mode to prevent a system-audio
    callback and the deterministic test renderer from consuming the same AMY
    stream concurrently.
-6. LB Omnichord must pin the resulting release-branch SHA, author its rhythms
-   as stored patterns, use loop mode for the base rhythm and one-shot mode for
-   fills, and pass all existing platform and release tests. Each logical
-   percussion role is a tagged loop instance. A fill stores generic `zQM`
-   events for the role instances it suppresses; deciding which musical roles
-   continue is exclusively LB Omnichord policy and is not AMY engine code.
-7. Only after the complete Omnichord behavior is verified may the clean
+6. `releases/amy_omnichord_R20260901T201533` starts at the exact tip of the
+   preceding release, `14240031c135fdcd76a7a3a8ec81da8ef405c4b0`. It merges
+   Shorepine AMY 1.2.163 at `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`,
+   including the upstream drum-kit oscillator-count repair, and incorporates
+   the Gamma9001 host profile previously validated on
+   `releases/amy_omnichord_R20260831T001253`. The Android AAR defines
+   `GAMMA9001`, generates its linkable sample blob in a private per-ABI build
+   directory and registers that data before AMY starts. Native downstream
+   builds use the same `gamma9001-blob-c` generator and must link its output
+   while defining `GAMMA9001`. Consequently PCM presets 0-18 consistently mean
+   the Gamma808 ROM bank on locally hosted targets. The serial ESP32-P4 remains
+   a separately declared tiny-bank hardware profile until Gamma sample storage
+   is implemented there. No wire operation or sequencer behavior changes.
+7. LB Omnichord must pin the resulting release-branch SHA, select its
+   Gamma9001 instrument mapping, author rhythms as stored patterns, use loop
+   mode for the base rhythm and one-shot mode for fills, and pass all existing
+   platform and release tests. Each logical percussion role is a tagged loop
+   instance. A fill stores generic `zQM` events for the role instances it
+   suppresses; deciding which musical roles continue is exclusively LB
+   Omnichord policy and is not AMY engine code.
+8. Only after the complete Omnichord behavior is verified may the clean
    `upstream/nested_sequencer` branch be proposed to Shorepine. The release
    branch itself is never the source of that pull request.
-
-7. `releases/amy_omnichord_R20260831T001253` starts at the exact tip of the
-   preceding release, `32f3a68861a68979ceb715cf32e0322e8614365b`. It is the
-   first LB release profile which deliberately builds Gamma9001 on every
-   locally hosted target. CPython retains its existing Gamma9001 default. The
-   Android AAR defines `GAMMA9001` and generates its linkable sample blob in a
-   private per-ABI build directory. Native downstream builds use the same
-   `gamma9001-blob-c` generator and must link its output while defining
-   `GAMMA9001`. Consequently PCM presets 0-18 consistently mean the Gamma808
-   ROM bank on these targets, and LB must select its Gamma9001 instrument
-   mapping rather than the tiny mapping. No wire operation or sequencer
-   behavior changes.
 
 Live fill schedules use AMY's root `zQA` trigger scheduler. Replacing or
 clearing those ordinary root tags changes only future fill launches: a

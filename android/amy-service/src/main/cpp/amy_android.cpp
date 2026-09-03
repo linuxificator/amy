@@ -60,7 +60,7 @@ constexpr uint16_t kIntegrationMaxOscillators = 336;
 constexpr uint16_t kIntegrationMaxBuses = 11;
 constexpr uint32_t kIntegrationMaxSequenceGroups = 1024;
 constexpr uint32_t kIntegrationMaxSequenceGroupTags = 64;
-constexpr uint32_t kIntegrationMaxSequenceGroupExecutions = 32;
+constexpr uint32_t kIntegrationMaxSequenceGroupExecutions = 40;
 
 class AmyAndroidEngine final : public oboe::AudioStreamDataCallback,
                                public oboe::AudioStreamErrorCallback {

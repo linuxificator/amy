@@ -41,6 +41,8 @@ def main() -> None:
             engine, "runtime local-tag configuration")
     require(r"config\.max_sequence_group_executions\s*=\s*kIntegrationMaxSequenceGroupExecutions\s*;",
             engine, "runtime group-execution configuration")
+    require(r"kIntegrationMaxSequenceGroupExecutions\s*=\s*40\s*;", engine,
+            "characterized Omnichord group-execution capacity")
     require(r"kCaptureSeconds\s*=\s*8\s*;", capture,
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,

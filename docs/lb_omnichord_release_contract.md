@@ -43,9 +43,11 @@ arrangement schedules. The frontend remains a wire-protocol client and never
 imports or calls AMY engine internals.
 
 The release profile uses 1,024 group slots, 64 local event tags per group and
-32 active or pending executions. The high group count stores the complete fill
-catalogue; it does not create 1,024 players. Event tables are allocated lazily
-only for definitions that are actually authored.
+40 active or pending executions. The high group count stores the complete fill
+catalogue; it does not create 1,024 players. The execution pool includes room
+for the characterized worst case of 34 concurrent role, fill and overlapping
+arpeggio executions. Event tables are allocated lazily only for definitions
+that are actually authored.
 
 ## Platform boundary
 

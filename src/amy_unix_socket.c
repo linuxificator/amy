@@ -23,6 +23,7 @@
 #endif
 
 #define AMY_UNIX_SOCKET_POLL_MS 50
+#define AMY_UNIX_SOCKET_BACKPRESSURE_POLL_MS 1
 
 struct amy_unix_socket_packet {
     uint16_t len;
@@ -188,9 +189,22 @@ static void queue_packet(amy_unix_socket_server_t *server,
     store_u32(&server->write_index, write_index + 1u);
 }
 
+static bool packet_queue_is_full(const amy_unix_socket_server_t *server) {
+    uint32_t write_index = load_u32(&server->write_index);
+    uint32_t read_index = load_u32(&server->read_index);
+    return (uint32_t)(write_index - read_index) >=
+           AMY_UNIX_SOCKET_QUEUE_CAPACITY;
+}
+
 static void receive_client_packets(amy_unix_socket_server_t *server,
                                    int client_fd) {
     for (;;) {
+        // Leave unread packets in the kernel socket queue when the bounded
+        // realtime handoff queue is full. The connected sender then receives
+        // normal socket backpressure instead of a successful write for a
+        // control message that this process discarded.
+        if (packet_queue_is_full(server)) return;
+
         char packet[MAX_MESSAGE_LEN];
         ssize_t received = recv(client_fd,
                                 packet,
@@ -265,14 +279,22 @@ static void *socket_thread(void *arg) {
         fds[0].revents = 0;
 
         int client_fd = current_client_fd(server);
-        if (client_fd >= 0) {
+        bool queue_full =
+            client_fd >= 0 && packet_queue_is_full(server);
+        if (client_fd >= 0 && !queue_full) {
             fds[1].fd = client_fd;
             fds[1].events = POLLIN;
             fds[1].revents = 0;
             count = 2;
         }
 
-        int ready = poll(fds, count, AMY_UNIX_SOCKET_POLL_MS);
+        // Do not poll a readable client while the handoff queue is full: that
+        // would spin. Recheck quickly so the consumer can release
+        // backpressure without adding a full control-poll interval of latency.
+        int timeout_ms = queue_full
+            ? AMY_UNIX_SOCKET_BACKPRESSURE_POLL_MS
+            : AMY_UNIX_SOCKET_POLL_MS;
+        int ready = poll(fds, count, timeout_ms);
         if (ready < 0) {
             if (errno == EINTR) continue;
             break;

@@ -16,7 +16,9 @@ extern "C" {
 //   application process <-> amy.sock <-> native AMY/audio process
 //
 // The socket thread never calls AMY. It only copies complete SOCK_SEQPACKET
-// packets into this fixed SPSC queue. The audio/control owner drains packets
+// packets into this fixed SPSC queue. When that queue is full, packets remain
+// unread in the kernel socket queue so normal socket backpressure preserves
+// every accepted control message. The audio/control owner drains packets
 // explicitly at a safe point (for example, immediately before rendering the
 // next AMY block) and may then pass them to amy_add_message().
 //

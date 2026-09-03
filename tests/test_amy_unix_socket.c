@@ -222,7 +222,7 @@ static void test_oversize_packet_is_dropped(void) {
     remove_temp_dir(path);
 }
 
-static void test_queue_is_bounded_and_ordered(void) {
+static void test_full_queue_applies_backpressure_and_preserves_order(void) {
     char dir_template[] = "/tmp/amy-unix-queue-XXXXXX";
     char path[256];
     make_temp_path(dir_template, path, sizeof(path));
@@ -239,18 +239,21 @@ static void test_queue_is_bounded_and_ordered(void) {
         send_packet(client, packet, (size_t)len);
     }
 
-    wait_counter(amy_unix_socket_queue_overruns, server, extra);
-    assert(amy_unix_socket_queue_overruns(server) == extra);
+    // Let the receiver reach its bounded in-process capacity before the
+    // consumer starts. Excess packets must remain in the kernel socket queue,
+    // not be read and discarded.
+    usleep(150000);
 
-    for (uint32_t i = 0; i < AMY_UNIX_SOCKET_QUEUE_CAPACITY; ++i) {
+    for (uint32_t i = 0; i < AMY_UNIX_SOCKET_QUEUE_CAPACITY + extra; ++i) {
         char expected[32];
         int expected_len = snprintf(expected, sizeof(expected),
                                     "packet-%03u", i);
         char received[MAX_MESSAGE_LEN];
-        int rc = amy_unix_socket_receive(server, received, sizeof(received));
+        int rc = wait_receive(server, received, sizeof(received));
         assert(rc == expected_len);
         assert(strcmp(received, expected) == 0);
     }
+    assert(amy_unix_socket_queue_overruns(server) == 0);
 
     char received[MAX_MESSAGE_LEN];
     assert(amy_unix_socket_receive(server, received, sizeof(received)) == 0);
@@ -389,7 +392,7 @@ int main(void) {
     test_invalid_arguments();
     test_round_trip_limits_and_permissions();
     test_oversize_packet_is_dropped();
-    test_queue_is_bounded_and_ordered();
+    test_full_queue_applies_backpressure_and_preserves_order();
     test_only_one_client_and_reconnect();
     test_live_socket_is_not_stolen();
     test_owned_stale_socket_is_replaced();

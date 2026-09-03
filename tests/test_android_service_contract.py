@@ -33,6 +33,14 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
+    require(r"kIntegrationMaxSequenceGroups\s*=\s*1024\s*;", engine,
+            "the complete hosted group catalogue capacity")
+    require(r"config\.max_sequence_groups\s*=\s*kIntegrationMaxSequenceGroups\s*;",
+            engine, "runtime sequence-group configuration")
+    require(r"config\.max_sequence_group_tags\s*=\s*kIntegrationMaxSequenceGroupTags\s*;",
+            engine, "runtime local-tag configuration")
+    require(r"config\.max_sequence_group_executions\s*=\s*kIntegrationMaxSequenceGroupExecutions\s*;",
+            engine, "runtime group-execution configuration")
     require(r"kCaptureSeconds\s*=\s*8\s*;", capture,
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
@@ -58,7 +66,8 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "Gamma9001 PCM, 336 oscillators, 11 buses, 8-second test capture")
+          "Gamma9001 PCM, 336 oscillators, 11 buses, 1024 sequence groups, "
+          "8-second test capture")
 
 
 if __name__ == "__main__":

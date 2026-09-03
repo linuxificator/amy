@@ -58,6 +58,9 @@ constexpr int kAudioReadyTimeoutMs = 2000;
 constexpr int kAudioReadyPollMs = 2;
 constexpr uint16_t kIntegrationMaxOscillators = 336;
 constexpr uint16_t kIntegrationMaxBuses = 11;
+constexpr uint32_t kIntegrationMaxSequenceGroups = 1024;
+constexpr uint32_t kIntegrationMaxSequenceGroupTags = 64;
+constexpr uint32_t kIntegrationMaxSequenceGroupExecutions = 32;
 
 class AmyAndroidEngine final : public oboe::AudioStreamDataCallback,
                                public oboe::AudioStreamErrorCallback {
@@ -78,6 +81,9 @@ public:
          */
         config.max_oscs = kIntegrationMaxOscillators;
         config.max_buses = kIntegrationMaxBuses;
+        config.max_sequence_groups = kIntegrationMaxSequenceGroups;
+        config.max_sequence_group_tags = kIntegrationMaxSequenceGroupTags;
+        config.max_sequence_group_executions = kIntegrationMaxSequenceGroupExecutions;
         /* Keep AMY rendering entirely on Oboe's realtime callback thread. */
         config.platform.multicore = 0;
         config.platform.multithread = 0;

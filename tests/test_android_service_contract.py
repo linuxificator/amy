@@ -33,6 +33,16 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
+    require(r"kIntegrationMaxSequencerTags\s*=\s*1280\s*;", engine,
+            "the shared live-event and stored-sequence tag capacity")
+    require(r"config\.max_sequencer_tags\s*=\s*kIntegrationMaxSequencerTags\s*;",
+            engine, "runtime sequencer-tag configuration")
+    require(r"config\.max_sequence_events\s*=\s*kIntegrationMaxSequenceEvents\s*;",
+            engine, "runtime per-sequence event configuration")
+    require(r"config\.max_sequence_executions\s*=\s*kIntegrationMaxSequenceExecutions\s*;",
+            engine, "runtime sequence-execution configuration")
+    require(r"kIntegrationMaxSequenceExecutions\s*=\s*40\s*;", engine,
+            "characterized Omnichord sequence-execution capacity")
     require(r"kCaptureSeconds\s*=\s*8\s*;", capture,
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
@@ -58,7 +68,8 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "Gamma9001 PCM, 336 oscillators, 11 buses, 8-second test capture")
+          "Gamma9001 PCM, 336 oscillators, 11 buses, 1280 sequencer tags, "
+          "8-second test capture")
 
 
 if __name__ == "__main__":

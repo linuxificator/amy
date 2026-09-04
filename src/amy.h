@@ -72,21 +72,41 @@ extern const uint32_t pcm_wavetable_len;
 
 
 
-// Set block size and SR. We try for 256/44100, but some platforms don't let us:
+// Set block size and SR. The defaults remain 256/44100, except on platforms
+// that require something else. Embedded applications may provide these as
+// compiler definitions instead of carrying a private patch to amy.h.
+#ifndef AMY_BLOCK_SIZE
 #ifdef AMY_DAISY
 #define AMY_BLOCK_SIZE 128
-#define BLOCK_SIZE_BITS 7 // log2 of BLOCK_SIZE
 #else
 #define AMY_BLOCK_SIZE 256
-#define BLOCK_SIZE_BITS 8 // log2 of BLOCK_SIZE
+#endif
 #endif
 
-#ifdef AMY_DAISY
-#define AMY_SAMPLE_RATE 48000
-#elif defined __EMSCRIPTEN__
+#ifndef BLOCK_SIZE_BITS
+#if AMY_BLOCK_SIZE == 512
+#define BLOCK_SIZE_BITS 9
+#elif AMY_BLOCK_SIZE == 64
+#define BLOCK_SIZE_BITS 6
+#elif AMY_BLOCK_SIZE == 128
+#define BLOCK_SIZE_BITS 7
+#elif AMY_BLOCK_SIZE == 256
+#define BLOCK_SIZE_BITS 8
+#else
+#error "AMY_BLOCK_SIZE must be 64, 128, 256, or 512"
+#endif
+#endif
+
+#if (1 << BLOCK_SIZE_BITS) != AMY_BLOCK_SIZE
+#error "BLOCK_SIZE_BITS must be log2(AMY_BLOCK_SIZE)"
+#endif
+
+#ifndef AMY_SAMPLE_RATE
+#if defined(AMY_DAISY) || defined(__EMSCRIPTEN__)
 #define AMY_SAMPLE_RATE 48000
 #else
-#define AMY_SAMPLE_RATE 44100 
+#define AMY_SAMPLE_RATE 44100
+#endif
 #endif
 
 #define PCM_AMY_SAMPLE_RATE 22050

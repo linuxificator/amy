@@ -25,6 +25,19 @@ Keep blocking IPC away from the realtime audio callback. If a receiver thread
 accepts commands, move them through a bounded queue and let the AMY/audio owner
 drain that queue between render blocks.
 
+An embedded build can select its audio geometry without modifying AMY sources:
+
+```text
+-DAMY_BLOCK_SIZE=128 -DAMY_SAMPLE_RATE=48000
+```
+
+`BLOCK_SIZE_BITS` is derived for supported power-of-two block sizes (64, 128,
+256, or 512), and a mismatched explicit value is rejected at compile time. On
+ESP-IDF, the generic I2S adapter additionally accepts
+`AMY_ESP_I2S_PHILIPS_FORMAT`, `AMY_ESP_I2S_DMA_DESC_NUM`, and
+`AMY_ESP_I2S_DMA_FRAME_NUM`. If none of these definitions is supplied, AMY's
+existing block, sample-rate, I2S-format, and DMA defaults are unchanged.
+
 ## Linux/Android packet transport
 
 `src/amy_unix_socket.[ch]` implements a local pathname `AF_UNIX` /

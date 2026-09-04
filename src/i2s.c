@@ -70,6 +70,12 @@ i2s_chan_handle_t rx_handle;
 // default ESP setup i2s
 amy_err_t esp32_setup_i2s(void) {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
+#ifdef AMY_ESP_I2S_DMA_DESC_NUM
+    chan_cfg.dma_desc_num = AMY_ESP_I2S_DMA_DESC_NUM;
+#endif
+#ifdef AMY_ESP_I2S_DMA_FRAME_NUM
+    chan_cfg.dma_frame_num = AMY_ESP_I2S_DMA_FRAME_NUM;
+#endif
     if(AMY_HAS_AUDIO_IN) {
         i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle);
     } else {
@@ -81,7 +87,11 @@ amy_err_t esp32_setup_i2s(void) {
 #ifdef I2S_32BIT
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AMY_SAMPLE_RATE),
+#ifdef AMY_ESP_I2S_PHILIPS_FORMAT
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+#else
         .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
+#endif
         .gpio_cfg = {
             .mclk = (amy_global.config.i2s_mclk == -1)? I2S_GPIO_UNUSED : amy_global.config.i2s_mclk,
             .bclk = amy_global.config.i2s_bclk,
@@ -98,7 +108,11 @@ amy_err_t esp32_setup_i2s(void) {
 #else // 16 bit I2S
     i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(AMY_SAMPLE_RATE),
+#ifdef AMY_ESP_I2S_PHILIPS_FORMAT
+        .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+#else
         .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+#endif
         .gpio_cfg = {
             .mclk = (amy_global.config.i2s_mclk == -1)? I2S_GPIO_UNUSED : amy_global.config.i2s_mclk,
             .bclk = amy_global.config.i2s_bclk,

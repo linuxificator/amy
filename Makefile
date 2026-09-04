@@ -64,7 +64,7 @@ EMSCRIPTEN_OPTIONS = -s WASM=1 --bind \
 -s ASYNCIFY -s ASYNCIFY_STACK_SIZE=128000
 PYTHON = python3
 
-.PHONY: default all clean amy-module test ctest web deploy-web godot-api c-api check-c-api js-api-test
+.PHONY: default all clean amy-module test ctest build-config-test web deploy-web godot-api c-api check-c-api js-api-test
 
 default: $(TARGET)
 all: default
@@ -159,7 +159,20 @@ tests/test_sequencer_concurrency.o: tests/test_sequencer_concurrency.c $(HEADERS
 $(SEQUENCE_SPECIAL_TESTS): %: %.o tests/sequencer_testing_impl.o $(filter-out src/sequencer.o,$(OBJECTS))
 	$(CC) $(CFLAGS) $(filter-out src/sequencer.o,$(OBJECTS)) tests/sequencer_testing_impl.o $< -Wall $(LIBS) -o $@
 
-ctest: $(CTESTS)
+build-config-test:
+	$(CC) $(CFLAGS) -Isrc \
+		-DEXPECT_AMY_BLOCK_SIZE=256 -DEXPECT_BLOCK_SIZE_BITS=8 \
+		-DEXPECT_AMY_SAMPLE_RATE=44100 \
+		tests/test_build_config.c -o tests/test_build_config_default
+	./tests/test_build_config_default
+	$(CC) $(CFLAGS) -Isrc \
+		-DAMY_BLOCK_SIZE=128 -DAMY_SAMPLE_RATE=48000 \
+		-DEXPECT_AMY_BLOCK_SIZE=128 -DEXPECT_BLOCK_SIZE_BITS=7 \
+		-DEXPECT_AMY_SAMPLE_RATE=48000 \
+		tests/test_build_config.c -o tests/test_build_config_embedded
+	./tests/test_build_config_embedded
+
+ctest: build-config-test $(CTESTS)
 	@for t in $(CTESTS); do echo "== $$t"; ./$$t || exit 1; done
 
 amy-module: amy-example
@@ -241,3 +254,4 @@ clean:
 	-rm -f amy/constants.py
 	-rm -f $(TARGET)
 	-rm -f tests/*.o $(CTESTS)
+	-rm -f tests/test_build_config_default tests/test_build_config_embedded

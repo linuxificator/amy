@@ -341,7 +341,8 @@ static int64_t _rl_last_print = 0;
 static int32_t _rl_render_us = 0;
 #endif // ARDUINO_SPEEDTEST
 
-void esp_fill_audio_buffer_task() {
+void esp_fill_audio_buffer_task(void *pvParameters) {
+    (void)pvParameters;
     while(1) {
         int64_t t;
         uint32_t blocked_us = 0;

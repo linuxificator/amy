@@ -13,9 +13,9 @@ def main() -> int:
     c_amy.live(
         audio=False,
         default_synths=0,
-        max_sequence_groups=1024,
-        max_sequence_group_tags=64,
-        max_sequence_group_executions=40,
+        max_sequencer_tags=1280,
+        max_sequence_events=64,
+        max_sequence_executions=40,
     )
 
     before = amy.ticks_ms()
@@ -37,10 +37,10 @@ def main() -> int:
     if amy.ticks_ms() <= after_sleep:
         raise AssertionError("explicit offline renders did not advance AMY time")
 
-    # A high group tag proves that audio=False retained live()'s configurable
+    # A high sequence tag proves that audio=False retained live()'s configurable
     # engine sizing instead of falling back to the import-time defaults.
-    amy.send(ticks=(0, 4, 0, 1000), osc=0, vel=0)
-    amy.send(sequence_control=[1000, amy.SEQUENCE_CONTROL_PUBLISH, 4])
+    amy.define_sequence(1000, [dict(ticks=(0,), osc=0, vel=0)])
+    amy.send(sequence_control=(1000, amy.SEQUENCE_CONTROL_START))
     return 0
 
 

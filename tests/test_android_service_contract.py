@@ -33,16 +33,16 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
-    require(r"kIntegrationMaxSequenceGroups\s*=\s*1024\s*;", engine,
-            "the complete hosted group catalogue capacity")
-    require(r"config\.max_sequence_groups\s*=\s*kIntegrationMaxSequenceGroups\s*;",
-            engine, "runtime sequencer-group configuration")
-    require(r"config\.max_sequence_group_tags\s*=\s*kIntegrationMaxSequenceGroupTags\s*;",
-            engine, "runtime local-tag configuration")
-    require(r"config\.max_sequence_group_executions\s*=\s*kIntegrationMaxSequenceGroupExecutions\s*;",
-            engine, "runtime group-execution configuration")
-    require(r"kIntegrationMaxSequenceGroupExecutions\s*=\s*40\s*;", engine,
-            "characterized Omnichord group-execution capacity")
+    require(r"kIntegrationMaxSequencerTags\s*=\s*1280\s*;", engine,
+            "the shared live-event and stored-sequence tag capacity")
+    require(r"config\.max_sequencer_tags\s*=\s*kIntegrationMaxSequencerTags\s*;",
+            engine, "runtime sequencer-tag configuration")
+    require(r"config\.max_sequence_events\s*=\s*kIntegrationMaxSequenceEvents\s*;",
+            engine, "runtime per-sequence event configuration")
+    require(r"config\.max_sequence_executions\s*=\s*kIntegrationMaxSequenceExecutions\s*;",
+            engine, "runtime sequence-execution configuration")
+    require(r"kIntegrationMaxSequenceExecutions\s*=\s*40\s*;", engine,
+            "characterized Omnichord sequence-execution capacity")
     require(r"kCaptureSeconds\s*=\s*8\s*;", capture,
             "the framework-safe eight-second audio capture window")
     require(r'ndkVersion\s*=\s*"27\.2\.12479018"', gradle,
@@ -68,7 +68,7 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "Gamma9001 PCM, 336 oscillators, 11 buses, 1024 sequencer groups, "
+          "Gamma9001 PCM, 336 oscillators, 11 buses, 1280 sequencer tags, "
           "8-second test capture")
 
 

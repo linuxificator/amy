@@ -12,7 +12,7 @@ it is never itself offered upstream.
 
 ## Current line
 
-`releases/amy_omnichord_R20260903T201525` starts with:
+`releases/amy_omnichord_R20260903T202802` starts with:
 
 - Shorepine main `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`;
 - the generic sequencer-group work from `rework/sequencer`;
@@ -21,6 +21,10 @@ it is never itself offered upstream.
 - deterministic offline CPython startup for tests; and
 - the larger bounded sequencer-group capacity required by the rhythm
   catalogue.
+
+The Unix-socket receiver applies lossless backpressure when its bounded
+realtime handoff queue is full. Large startup transactions therefore remain in
+the kernel socket queue instead of being read and discarded.
 
 The abandoned bus-mixer experiment is not part of this line. AMY's generic
 bus support remains whatever is present in Shorepine main; no private mixer

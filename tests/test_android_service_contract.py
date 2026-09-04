@@ -36,7 +36,7 @@ def main() -> None:
     require(r"kIntegrationMaxSequenceGroups\s*=\s*1024\s*;", engine,
             "the complete hosted group catalogue capacity")
     require(r"config\.max_sequence_groups\s*=\s*kIntegrationMaxSequenceGroups\s*;",
-            engine, "runtime sequence-group configuration")
+            engine, "runtime sequencer-group configuration")
     require(r"config\.max_sequence_group_tags\s*=\s*kIntegrationMaxSequenceGroupTags\s*;",
             engine, "runtime local-tag configuration")
     require(r"config\.max_sequence_group_executions\s*=\s*kIntegrationMaxSequenceGroupExecutions\s*;",
@@ -68,7 +68,7 @@ def main() -> None:
             )
 
     print("Android service contract OK: private :amy process, socket-only client, "
-          "Gamma9001 PCM, 336 oscillators, 11 buses, 1024 sequence groups, "
+          "Gamma9001 PCM, 336 oscillators, 11 buses, 1024 sequencer groups, "
           "8-second test capture")
 
 

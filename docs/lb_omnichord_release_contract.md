@@ -7,85 +7,97 @@ immutable build input used by every platform package.
 
 The fork's `main` remains a fast-forward mirror of `shorepine/amy` `main`.
 Generic changes are developed on a clean upstream-directed branch. A release
-branch layers the tested platform and application profile on that clean work;
-it is never itself offered upstream.
+branch starts from that clean work and layers only the tested platform and
+application profile on top; it is never itself offered upstream.
 
 ## Current line
 
-`releases/amy_omnichord_R20260903T201525` starts with:
+`releases/amy_omnichord_R20260905T104903` starts from fork branch
+`rework/sequencer` at `3872b4be16af4f486c8f3259d44478ee7174864f`, the
+source offered in Shorepine PR 1151. That source in turn starts from Shorepine
+main `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`.
 
-- Shorepine main `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`;
-- the generic sequencer-group work from `rework/sequencer`;
+The release layers on:
+
 - the private Unix-socket service and Android Oboe integration;
-- the Gamma9001 hosted drum bank profile;
-- deterministic offline CPython startup for tests; and
-- the larger bounded sequencer-group capacity required by the rhythm
-  catalogue.
+- socket receiver backpressure protection;
+- the Gamma9001 hosted drum-bank profile;
+- deterministic offline CPython startup for tests;
+- 336 oscillators and 11 buses; and
+- 1,280 sequence tags, 64 events per definition and 40 active or
+  alignment-pending executions.
 
-The abandoned bus-mixer experiment is not part of this line. AMY's generic
-bus support remains whatever is present in Shorepine main; no private mixer
-module or routing policy is restored.
+The abandoned bus-mixer experiment is not part of this line. The 11-bus
+setting only enlarges AMY's existing generic bus capacity; it introduces no
+private mixer, routing API or musical policy.
 
-## Sequencer boundary
+## Sequence boundary
 
 The clean `rework/sequencer` branch contains only generic AMY behavior:
 
-- grouped events use `ticks=tick,period,event_tag,group_tag`;
-- one `sequence_control` family publishes, starts, stops, gates and clears;
-- active executions retain immutable published revisions;
-- one, N and infinite repeats share the same repeat-count model;
-- quantization uses AMY's own sequencer clock; and
-- a root event may launch a group, while a group cannot launch another group.
+- untagged one- and two-field `ticks` retain direct scheduling;
+- a tagged `ticks=(tick, period, tag)` event cumulatively extends a stopped,
+  reusable sequence definition;
+- `sequence_reset` clears a future definition;
+- `sequence_control` starts, stops or gates executions, with optional
+  alignment on AMY's own clock;
+- finite executions may overlap and each execution retains its immutable
+  definition snapshot;
+- publication and deferred reclamation keep clone/free work out of the render
+  path; and
+- a sequence may start another sequence, while bounded execution capacity
+  prevents cyclic graphs from recursing without limit.
 
-LB Omnichord owns all musical policy: which rhythm roles become groups, which
-ones a fill gates, which arpeggios may overlap, group/tag allocation and root
-arrangement schedules. The frontend remains a wire-protocol client and never
-imports or calls AMY engine internals.
+LB Omnichord owns all musical policy: instrument roles, fills, arpeggios,
+sequence/tag allocation and replacement boundaries. The frontend remains a
+wire-protocol client and never imports or calls AMY engine internals.
 
-The release profile uses 1,024 group slots, 64 local event tags per group and
-32 active or pending executions. The high group count stores the complete fill
-catalogue; it does not create 1,024 players. Event tables are allocated lazily
-only for definitions that are actually authored.
+The high tag capacity stores the complete rhythm catalogue. It does not create
+1,280 players: definitions and executions allocate from separate bounded
+resources, and only authored definitions consume event storage.
 
 ## Platform boundary
 
 On Android, the Qt frontend and the unexported `:amy` service are separate
 processes under the same application UID. The frontend discovers the
 application-private socket path and sends only AMY wire messages. Audio is
-rendered by the service and handed to Oboe/AAudio. The service is built at 48
-kHz with 128-frame stereo blocks.
+rendered by the service and handed to Oboe/AAudio. The service is built at
+48 kHz with 128-frame stereo blocks.
 
 Desktop Linux and macOS use the same frontend wire protocol over a private
-Unix socket. Windows may use its wrapper/named-pipe transport, but the AMY
-message stream and frontend logic stay platform-independent.
+Unix socket. Windows uses its wrapper/named-pipe transport. The AMY command
+stream and frontend synthesis logic stay platform-independent.
 
 The Android AAR defines `GAMMA9001` and generates its linkable sample blob in
 a private per-ABI build directory. Native downstream builds use the same
 `gamma9001-blob-c` generator and link its output while defining `GAMMA9001`.
-Consequently PCM presets 0-18 consistently mean the Gamma808 ROM bank on these
-targets; this profile changes no wire or sequencer semantics.
+Consequently PCM presets 0-18 mean the Gamma808 ROM and presets 256-391 use
+the Gamma9001 sample set on all hosted release targets.
 
-The CPython `AMY_PCM_BANK` build selector is release/build policy rather than
-generic sequencer behavior. `AMY_PCM_BANK=tiny` omits Gamma9001; the default
-for this release line is Gamma9001. Both choices force a fresh extension build
-because they share an output filename.
+The CPython `AMY_PCM_BANK` selector is release/build policy rather than
+generic sequencer behavior. `AMY_PCM_BANK=tiny` omits Gamma9001; the hosted
+Omnichord profile selects Gamma9001. Both choices force a fresh extension
+build because they share an output filename.
 
-`amy.live(audio=AMY_AUDIO_IS_NONE, ...)` is the deterministic test mode. The
-default remains live miniaudio, preserving existing callers. Offline mode
-prevents a system-audio callback and a deterministic renderer from consuming
-the same AMY stream concurrently.
+`amy.live(audio=False, ...)` is the deterministic host-test mode. The default
+remains live miniaudio, preserving existing callers. Offline mode prevents a
+system-audio callback and a deterministic renderer from consuming the same
+AMY stream concurrently.
+
+The release also keeps compile-time embedded audio geometry configurable,
+including the already characterized 48 kHz / 128-sample ESP32-P4 frame size.
+Physical ESP32-P4 timing, heap and DMA validation remains a separate hardware
+gate and is not implied by hosted tests.
 
 ## Release procedure
 
 1. Verify fork main exactly matches the chosen Shorepine main.
 2. Test generic work on the clean upstream-directed branch.
-3. Create the release branch and add only required fork integrations.
-4. Run native AMY, wire/socket, PCM-bank, offline and Android contract tests.
-5. Pin the final release branch and SHA in LB Omnichord configuration and
-   packaging inputs.
-6. Run LB Omnichord's generic and platform-specific suites against that same
-   SHA.
-7. Record the exact AMY SHA in release notes and keep diagnostic commits.
-
-ESP32 validation is deliberately deferred for this rework; it must be
-completed before claiming ESP32 support for the resulting release.
+3. Start a new immutable release branch at that exact generic commit.
+4. Add only required fork integrations in diagnostic commits.
+5. Run native AMY, wire/socket, PCM-bank, offline and Android contract tests.
+6. Pin the final release branch and SHA once in LB Omnichord's release-input
+   manifest and update its human-readable platform documents.
+7. Reinstall that exact AMY SHA and run LB Omnichord's generic and
+   platform-specific suites.
+8. Record the exact AMY SHA in release notes.

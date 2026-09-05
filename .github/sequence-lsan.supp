@@ -2,3 +2,6 @@
 # previous filter arrays. This is present on the Shorepine-main baseline and is
 # outside the reusable-sequence ownership being validated here.
 leak:filters_init
+# Repeated amy_start()/amy_stop() in the baseline leaves replaced patch-slot
+# arrays allocated as well. Keep sequence allocations visible.
+leak:patches_init

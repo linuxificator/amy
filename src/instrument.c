@@ -223,6 +223,11 @@ void instrument_free(struct instrument_info *instrument) {
 }
 
 void _instrument_push_note_forgotten(struct instrument_info *instrument, uint16_t note) {
+    // Forgotten notes exist only to absorb their eventual note-offs.  A synth
+    // which explicitly ignores note-offs (typically a one-shot drum synth)
+    // has nothing to match, and may otherwise fill this bounded pool forever.
+    if (instrument->flags & SYNTH_FLAGS_IGNORE_NOTE_OFFS) return;
+
     int available_index = -1;
     for (int i = 0; i < FORGOTTEN_POOL_SIZE; ++i) {
         if (instrument->forgotten_notes[i] == note) {
@@ -294,6 +299,10 @@ uint16_t _instrument_voice_off(struct instrument_info *instrument, uint16_t voic
 uint16_t instrument_note_off(struct instrument_info *instrument, uint16_t note) {
     uint16_t voice = _instrument_voice_for_note(instrument, note);
     if (voice == _INSTRUMENT_NO_VOICE) {
+        // A late note-off for an already stolen one-shot is expected when
+        // note-offs are ignored; no forgotten-note entry is kept for it.
+        if (instrument->flags & SYNTH_FLAGS_IGNORE_NOTE_OFFS)
+            return _INSTRUMENT_NO_VOICE;
         // Don't report an unmatched note-off if it was a victim of stealing.
         if (!_instrument_pop_note_forgotten(instrument, note)
             && !(instrument->flags & SYNTH_FLAGS_NO_NOTE_WARNINGS))
@@ -551,6 +560,12 @@ uint32_t instrument_get_flags(int instrument_number) {
 void instrument_set_flags(int instrument_number, uint32_t flags) {
     if (!instrument_number_exists(instrument_number, "set_flags")) return;
     struct instrument_info *instrument = instruments[instrument_number];
+    if ((flags & SYNTH_FLAGS_IGNORE_NOTE_OFFS)
+        && !(instrument->flags & SYNTH_FLAGS_IGNORE_NOTE_OFFS)) {
+        // Entries accumulated under the old policy can never be needed once
+        // note-offs are ignored, and must not become stale if flags change.
+        _instrument_reset_forgotten_pool(instrument);
+    }
     instrument->flags = flags;
 }
 

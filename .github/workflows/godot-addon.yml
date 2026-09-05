@@ -17,14 +17,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS
-            runner: macos-latest
-            platform: macos
-            arch: universal
-          - name: Linux
-            runner: ubuntu-22.04
-            platform: linux
-            arch: x86_64
           - name: Windows
             runner: windows-latest
             platform: windows
@@ -73,6 +65,7 @@ jobs:
 
   package:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     name: Package Addon
 

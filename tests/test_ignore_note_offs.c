@@ -7,7 +7,6 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include <string.h>
 #include "amy.h"
 
 static int failures = 0;
@@ -26,22 +25,10 @@ static void send(const char *message) {
     render_a_bit();
 }
 
-static int file_contains(const char *path, const char *needle) {
-    FILE *file = fopen(path, "r");
-    if (file == NULL) return 0;
-    char buffer[8192] = {0};
-    size_t count = fread(buffer, 1, sizeof(buffer) - 1, file);
-    buffer[count] = 0;
-    fclose(file);
-    return strstr(buffer, needle) != NULL;
-}
+extern int instrument_test_forgotten_note_slots(int instrument_number);
 
 static void test_ignored_note_offs_do_not_fill_forgotten_pool(void) {
-    const char *path = "test_ignore_note_offs.stderr.tmp";
     printf("ignored note-offs require no forgotten-note bookkeeping\n");
-    fflush(stderr);
-    FILE *redirected = freopen(path, "w", stderr);
-
     // This is the shape used by a small polyphonic one-shot PCM drum synth:
     // four voices, one oscillator per voice, and no note-offs by design.
     send("i0iv4in1if2Z");
@@ -51,13 +38,20 @@ static void test_ignored_note_offs_do_not_fill_forgotten_pool(void) {
         send(message);
     }
 
-    fflush(stderr);
-    int overflow = redirected != NULL
-        && file_contains(path, "forgotten pool overflow");
-    FILE *restored = freopen("/dev/stderr", "w", stderr);
-    (void)restored;
-    remove(path);
-    CHECK(!overflow, "64 one-shot onsets do not overflow the pool");
+    CHECK(instrument_test_forgotten_note_slots(0) == 0,
+          "64 one-shot onsets leave the pool empty");
+}
+
+static void test_ordinary_synths_still_track_stolen_notes(void) {
+    printf("ordinary synths retain forgotten-note matching\n");
+    send("i1iv4in1Z");
+    for (int note = 1; note <= 5; ++note) {
+        char message[32];
+        snprintf(message, sizeof(message), "n%dl1i1Z", note);
+        send(message);
+    }
+    CHECK(instrument_test_forgotten_note_slots(1) == 1,
+          "one stolen ordinary note occupies one pool slot");
 }
 
 // examples.o wants this from amy-example.c; every ctest stubs it.
@@ -70,6 +64,7 @@ int main(void) {
     render_a_bit();
 
     test_ignored_note_offs_do_not_fill_forgotten_pool();
+    test_ordinary_synths_still_track_stolen_notes();
 
     amy_stop();
     if (failures) { printf("%d FAILURES\n", failures); return 1; }

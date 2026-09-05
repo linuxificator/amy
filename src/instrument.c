@@ -569,6 +569,17 @@ void instrument_set_flags(int instrument_number, uint32_t flags) {
     instrument->flags = flags;
 }
 
+#ifdef AMY_INSTRUMENT_TESTING
+int instrument_test_forgotten_note_slots(int instrument_number) {
+    if (!instrument_number_exists(instrument_number, NULL)) return -1;
+    struct instrument_info *instrument = instruments[instrument_number];
+    int occupied = 0;
+    for (int i = 0; i < FORGOTTEN_POOL_SIZE; ++i)
+        if (instrument->forgotten_notes[i] != _INSTRUMENT_NO_NOTE) ++occupied;
+    return occupied;
+}
+#endif
+
 uint16_t instrument_noteon_delay_ms(int instrument_number) {
     if (!instrument_number_exists(instrument_number, "noteon_delay")) return 0;
     struct instrument_info *instrument = instruments[instrument_number];

@@ -135,8 +135,18 @@ CTESTS = tests/test_clock_wrap tests/test_sequencer_active tests/test_sequencer_
 $(addsuffix .o,$(CTESTS)): %.o: %.c $(HEADERS) src/patches.h
 	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(CTESTS): %: %.o $(OBJECTS)
+INSTRUMENT_SPECIAL_TEST = tests/test_ignore_note_offs
+
+$(filter-out $(INSTRUMENT_SPECIAL_TEST),$(CTESTS)): %: %.o $(OBJECTS)
 	$(CC) $(CFLAGS) $(OBJECTS) $< -Wall $(LIBS) -o $@
+
+# Read internal pool occupancy in this test without parsing stderr or relying
+# on platform-specific file-descriptor redirection.
+tests/instrument_testing_impl.o: src/instrument.c $(HEADERS) src/patches.h
+	$(CC) $(CFLAGS) -DAMY_INSTRUMENT_TESTING -c $< -o $@
+
+$(INSTRUMENT_SPECIAL_TEST): %: %.o tests/instrument_testing_impl.o $(filter-out src/instrument.o,$(OBJECTS))
+	$(CC) $(CFLAGS) $(filter-out src/instrument.o,$(OBJECTS)) tests/instrument_testing_impl.o $< -Wall $(LIBS) -o $@
 
 ctest: $(CTESTS)
 	@for t in $(CTESTS); do echo "== $$t"; ./$$t || exit 1; done

@@ -12,7 +12,7 @@ application profile on top; it is never itself offered upstream.
 
 ## Current line
 
-`releases/amy_omnichord_R20260905T104903` starts from fork branch
+`releases/amy_omnichord_R20260905T133309` starts from fork branch
 `rework/sequencer` at `3872b4be16af4f486c8f3259d44478ee7174864f`, the
 source offered in Shorepine PR 1151. That source in turn starts from Shorepine
 main `0fb0a00b5a9f9443d7e1f85261cc7e70a0adb76b`.
@@ -23,6 +23,8 @@ The release layers on:
 - socket receiver backpressure protection;
 - the Gamma9001 hosted drum-bank profile;
 - deterministic offline CPython startup for tests;
+- ignored-note-off bookkeeping suitable for indefinitely running one-shot
+  percussion synths;
 - 336 oscillators and 11 buses; and
 - 1,280 sequence tags, 64 events per definition and 40 active or
   alignment-pending executions.

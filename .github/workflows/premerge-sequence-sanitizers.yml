@@ -1,0 +1,45 @@
+name: Pre-merge sequence sanitizers
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  address-and-leak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sequence tests with AddressSanitizer
+        run: >-
+          make tests/test_sequencer_active tests/test_sequencer_bounds
+          tests/test_sequencer_sequences tests/test_sequencer_oom
+          tests/test_sequencer_concurrency
+          CFLAGS="-O1 -g -Wall -Wextra -Wno-unused-parameter
+          -Wno-strict-aliasing -Wno-float-conversion
+          -Wno-missing-declarations -Wpointer-arith -DAMY_WAVETABLE
+          -fsanitize=address -fno-omit-frame-pointer"
+      - name: Run sequence tests with leak detection
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+        run: |
+          tests/test_sequencer_active
+          tests/test_sequencer_bounds
+          tests/test_sequencer_sequences
+          tests/test_sequencer_oom
+          tests/test_sequencer_concurrency
+
+  thread:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the concurrency test with ThreadSanitizer
+        run: >-
+          make tests/test_sequencer_concurrency
+          CFLAGS="-O1 -g -Wall -Wextra -Wno-unused-parameter
+          -Wno-strict-aliasing -Wno-float-conversion
+          -Wno-missing-declarations -Wpointer-arith -DAMY_WAVETABLE
+          -fsanitize=thread -fno-omit-frame-pointer"
+      - name: Run the concurrency test
+        env:
+          TSAN_OPTIONS: halt_on_error=1
+        run: tests/test_sequencer_concurrency

@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install header-generation dependency
+        run: pip install numpy
       - name: Build sequence tests with AddressSanitizer
         run: >-
           make tests/test_sequencer_active tests/test_sequencer_bounds
@@ -32,6 +37,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install header-generation dependency
+        run: pip install numpy
       - name: Build the concurrency test with ThreadSanitizer
         run: >-
           make tests/test_sequencer_concurrency

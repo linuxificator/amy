@@ -1,0 +1,4 @@
+# amy_reset_oscs() reinitializes the global bus filters without releasing the
+# previous filter arrays. This is present on the Shorepine-main baseline and is
+# outside the reusable-sequence ownership being validated here.
+leak:filters_init

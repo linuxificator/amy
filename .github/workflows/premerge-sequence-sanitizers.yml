@@ -32,6 +32,7 @@ jobs:
       - name: Run lifecycle tests with leak detection
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          LSAN_OPTIONS: suppressions=.github/sequence-lsan.supp:print_suppressions=1
         run: |
           tests/test_sequencer_sequences
           tests/test_sequencer_oom

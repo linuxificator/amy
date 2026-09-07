@@ -106,6 +106,10 @@ typedef struct stored_sequence_execution_t {
 
 static stored_sequence_definition_t **stored_sequences = NULL;
 static stored_sequence_execution_t *sequence_executions = NULL;
+static uint32_t *occupied_execution_bits = NULL;
+static uint32_t *control_execution_bits = NULL;
+static uint32_t *regular_execution_bits = NULL;
+static uint32_t execution_bit_words = 0;
 static uint32_t max_stored_sequence_events = 0;
 static uint32_t max_stored_sequence_executions = 0;
 static size_t stored_sequence_event_bytes = 0;
@@ -275,6 +279,15 @@ static stored_sequence_definition_t *stored_sequence_definition_clone(
 static void stored_sequence_execution_release_deferred(
         stored_sequence_execution_t *execution) {
     if (!execution->occupied) return;
+    uint32_t slot = (uint32_t)(execution - sequence_executions);
+    uint32_t word = slot / 32;
+    uint32_t mask = 1u << (slot % 32);
+    if (occupied_execution_bits != NULL)
+        occupied_execution_bits[word] &= ~mask;
+    if (control_execution_bits != NULL)
+        control_execution_bits[word] &= ~mask;
+    if (regular_execution_bits != NULL)
+        regular_execution_bits[word] &= ~mask;
     stored_sequence_definition_t *definition = execution->definition;
     memset(execution, 0, sizeof(*execution));
     stored_sequence_definition_retire_locked(definition);
@@ -306,6 +319,19 @@ static void stored_sequences_deinit(void) {
         free(sequence_executions);
         sequence_executions = NULL;
     }
+    if (occupied_execution_bits != NULL) {
+        free(occupied_execution_bits);
+        occupied_execution_bits = NULL;
+    }
+    if (control_execution_bits != NULL) {
+        free(control_execution_bits);
+        control_execution_bits = NULL;
+    }
+    if (regular_execution_bits != NULL) {
+        free(regular_execution_bits);
+        regular_execution_bits = NULL;
+    }
+    execution_bit_words = 0;
     max_stored_sequence_events = 0;
     max_stored_sequence_executions = 0;
     stored_sequence_event_bytes = 0;
@@ -322,6 +348,8 @@ static void stored_sequences_init(uint32_t events, uint32_t executions) {
 
     size_t slot_bytes = 0;
     size_t execution_bytes = 0;
+    size_t execution_bit_bytes = 0;
+    execution_bit_words = executions / 32 + (executions % 32 != 0);
     if (!checked_array_size(max_sequences,
                             sizeof(*stored_sequences), &slot_bytes)
         || !checked_array_size(events, sizeof(stored_sequence_event_t),
@@ -330,7 +358,9 @@ static void stored_sequences_init(uint32_t events, uint32_t executions) {
                                &stored_sequence_order_bytes)
         || !checked_array_size(executions,
                                sizeof(stored_sequence_execution_t),
-                               &execution_bytes)) {
+                               &execution_bytes)
+        || !checked_array_size(execution_bit_words, sizeof(uint32_t),
+                               &execution_bit_bytes)) {
         fprintf(stderr,
                 "stored sequence configuration exceeds addressable memory: "
                 "tags=%" PRIu32 ", events=%" PRIu32
@@ -347,7 +377,21 @@ static void stored_sequences_init(uint32_t events, uint32_t executions) {
         execution_bytes, amy_global.config.ram_caps_synth);
     if (sequence_executions != NULL)
         memset(sequence_executions, 0, execution_bytes);
-    if (stored_sequences == NULL || sequence_executions == NULL) {
+    occupied_execution_bits = (uint32_t *)stored_sequence_allocate(
+        execution_bit_bytes, amy_global.config.ram_caps_block);
+    control_execution_bits = (uint32_t *)stored_sequence_allocate(
+        execution_bit_bytes, amy_global.config.ram_caps_block);
+    regular_execution_bits = (uint32_t *)stored_sequence_allocate(
+        execution_bit_bytes, amy_global.config.ram_caps_block);
+    if (occupied_execution_bits != NULL)
+        memset(occupied_execution_bits, 0, execution_bit_bytes);
+    if (control_execution_bits != NULL)
+        memset(control_execution_bits, 0, execution_bit_bytes);
+    if (regular_execution_bits != NULL)
+        memset(regular_execution_bits, 0, execution_bit_bytes);
+    if (stored_sequences == NULL || sequence_executions == NULL
+        || occupied_execution_bits == NULL || control_execution_bits == NULL
+        || regular_execution_bits == NULL) {
         amy_oom("stored sequences: out of memory\n");
         stored_sequences_deinit();
         return;
@@ -891,9 +935,20 @@ uint8_t sequencer_sequence_control_with_origin(
             uint32_t start_tick = sequence_control_tick(
                 alignment_period, origin, current_tick);
             stored_sequence_execution_t *available = NULL;
-            for (uint32_t i = 0; i < max_stored_sequence_executions; ++i) {
-                stored_sequence_execution_t *execution = &sequence_executions[i];
-                if (!execution->occupied && available == NULL) available = execution;
+            uint32_t available_slot = 0;
+            for (uint32_t word = 0;
+                 word < execution_bit_words && available == NULL; ++word) {
+                uint32_t occupied = occupied_execution_bits[word];
+                if (occupied == UINT32_MAX) continue;
+                for (uint32_t bit = 0; bit < 32; ++bit) {
+                    uint32_t slot_index = word * 32 + bit;
+                    if (slot_index >= max_stored_sequence_executions) break;
+                    if ((occupied & (1u << bit)) == 0) {
+                        available_slot = slot_index;
+                        available = &sequence_executions[slot_index];
+                        break;
+                    }
+                }
             }
             if (available == NULL) {
                 fprintf(stderr, "cannot start sequence %" PRIu32
@@ -906,6 +961,13 @@ uint8_t sequencer_sequence_control_with_origin(
                 available->tag = tag;
                 available->start_tick = start_tick;
                 available->occupied = true;
+                uint32_t word = available_slot / 32;
+                uint32_t mask = 1u << (available_slot % 32);
+                occupied_execution_bits[word] |= mask;
+                if (available->definition->has_control_event)
+                    control_execution_bits[word] |= mask;
+                if (available->definition->has_regular_event)
+                    regular_execution_bits[word] |= mask;
                 result = 1;
             }
         }
@@ -1094,6 +1156,14 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
     return controls && dispatched_control;
 }
 
+static uint32_t stored_sequence_active_word(bool controls, uint32_t word) {
+    amy_grab_lock();
+    uint32_t bits = controls ? control_execution_bits[word]
+                             : regular_execution_bits[word];
+    amy_release_lock();
+    return bits;
+}
+
 static void stored_sequence_process_controls(uint32_t tick) {
     // A control can start an execution in a lower-numbered slot already passed
     // by this scan. Repeat until no due execution remains unvisited. At most one
@@ -1103,19 +1173,37 @@ static void stored_sequence_process_controls(uint32_t tick) {
     bool progressed;
     do {
         progressed = false;
-        for (uint32_t i = 0;
-             i < max_stored_sequence_executions && visits_left != 0; ++i) {
-            if (stored_sequence_process_slot(i, tick, true)) {
-                visits_left--;
-                progressed = true;
+        for (uint32_t word = 0;
+             word < execution_bit_words && visits_left != 0; ++word) {
+            uint32_t bits = stored_sequence_active_word(true, word);
+            for (uint32_t bit = 0;
+                 bit < 32 && bits != 0 && visits_left != 0; ++bit) {
+                uint32_t mask = 1u << bit;
+                if ((bits & mask) == 0) continue;
+                bits &= ~mask;
+                uint32_t slot = word * 32 + bit;
+                if (slot >= max_stored_sequence_executions) break;
+                if (stored_sequence_process_slot(slot, tick, true)) {
+                    visits_left--;
+                    progressed = true;
+                }
             }
         }
     } while (progressed && visits_left != 0);
 }
 
 static void stored_sequence_process_events(uint32_t tick) {
-    for (uint32_t i = 0; i < max_stored_sequence_executions; ++i)
-        stored_sequence_process_slot(i, tick, false);
+    for (uint32_t word = 0; word < execution_bit_words; ++word) {
+        uint32_t bits = stored_sequence_active_word(false, word);
+        for (uint32_t bit = 0; bit < 32 && bits != 0; ++bit) {
+            uint32_t mask = 1u << bit;
+            if ((bits & mask) == 0) continue;
+            bits &= ~mask;
+            uint32_t slot = word * 32 + bit;
+            if (slot >= max_stored_sequence_executions) break;
+            stored_sequence_process_slot(slot, tick, false);
+        }
+    }
 }
 
 static void sequencer_process_tick(void) {

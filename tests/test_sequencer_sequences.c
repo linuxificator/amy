@@ -699,6 +699,29 @@ static void test_disabled_configuration(void) {
     }
 }
 
+static void test_execution_bitsets_cross_machine_words(void) {
+    printf("execution activity indexes cross 32-bit word boundaries\n");
+    amy_config_t config = amy_default_config();
+    config.features.startup_bleep = 0;
+    config.audio = AMY_AUDIO_IS_NONE;
+    config.amy_external_exec_hook = mark_hook;
+    config.max_sequencer_tags = 2;
+    config.max_sequence_events = 1;
+    config.max_sequence_executions = 70;
+    amy_start(config);
+    clear_marks();
+    amy_add_message("H0,0,1zPwideZ");
+    int starts = 0;
+    for (int i = 0; i < 70; ++i)
+        starts += sequencer_sequence_control(
+            1, SEQUENCE_CONTROL_START, 0, 0);
+    CHECK(starts == 70, "all 70 execution slots are addressable");
+    clock_to(sequencer_ticks() + 1);
+    CHECK(marks_named("wide") == 70,
+          "activity traversal reaches executions beyond slot 63");
+    amy_stop();
+}
+
 // examples.c calls this; the platform normally provides it.
 void delay_ms(uint32_t ms) { (void)ms; }
 
@@ -741,6 +764,7 @@ int main(void) {
     test_wire_control_shape_is_strict();
 
     amy_stop();
+    test_execution_bitsets_cross_machine_words();
     test_disabled_configuration();
     if (failures) {
         printf("\n%d check(s) FAILED\n", failures);

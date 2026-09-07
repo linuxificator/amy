@@ -289,6 +289,7 @@ static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
 static amy_esp_load_diagnostic_t esp_load_diagnostic;
 static volatile uint32_t esp_load_diagnostic_seq;
 static amy_esp_load_diagnostic_t esp_load_print_baseline;
+static volatile uint32_t esp_render_core_us[2];
 
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
@@ -299,6 +300,12 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     __sync_synchronize();
     stats->execute_sum_us += execute_us;
     stats->render_sum_us += render_us;
+    for (uint8_t core = 0; core < 2; ++core) {
+        uint32_t core_us = esp_render_core_us[core];
+        stats->render_core_sum_us[core] += core_us;
+        if (core_us > stats->render_core_max_us[core])
+            stats->render_core_max_us[core] = core_us;
+    }
     stats->fill_sum_us += fill_us;
     stats->total_sum_us += total_us;
     if (execute_us > stats->execute_max_us) stats->execute_max_us = execute_us;
@@ -307,7 +314,19 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     if (total_us > stats->total_max_us) stats->total_max_us = total_us;
     if (total_us >= (AMY_BLOCK_US * 9u) / 10u)
         ++stats->total_near_deadline;
-    if (total_us > AMY_BLOCK_US) ++stats->total_deadline_misses;
+    if (total_us > AMY_BLOCK_US) {
+        ++stats->total_deadline_misses;
+        stats->missed_execute_sum_us += execute_us;
+        stats->missed_render_sum_us += render_us;
+        stats->missed_fill_sum_us += fill_us;
+        stats->missed_total_sum_us += total_us;
+        if (execute_us > stats->missed_execute_max_us)
+            stats->missed_execute_max_us = execute_us;
+        if (render_us > stats->missed_render_max_us)
+            stats->missed_render_max_us = render_us;
+        if (fill_us > stats->missed_fill_max_us)
+            stats->missed_fill_max_us = fill_us;
+    }
     ++stats->blocks;
     __sync_synchronize();
     ++esp_load_diagnostic_seq;
@@ -338,6 +357,12 @@ void amy_esp_load_diagnostics_print(void) {
         stats.execute_sum_us - esp_load_print_baseline.execute_sum_us;
     uint64_t interval_render_us =
         stats.render_sum_us - esp_load_print_baseline.render_sum_us;
+    uint64_t interval_render_core_us[2] = {
+        stats.render_core_sum_us[0]
+            - esp_load_print_baseline.render_core_sum_us[0],
+        stats.render_core_sum_us[1]
+            - esp_load_print_baseline.render_core_sum_us[1],
+    };
     uint64_t interval_fill_us =
         stats.fill_sum_us - esp_load_print_baseline.fill_sum_us;
     uint64_t interval_total_us =
@@ -347,13 +372,29 @@ void amy_esp_load_diagnostics_print(void) {
     uint32_t interval_misses =
         stats.total_deadline_misses
         - esp_load_print_baseline.total_deadline_misses;
+    uint64_t interval_missed_execute_us =
+        stats.missed_execute_sum_us
+        - esp_load_print_baseline.missed_execute_sum_us;
+    uint64_t interval_missed_render_us =
+        stats.missed_render_sum_us
+        - esp_load_print_baseline.missed_render_sum_us;
+    uint64_t interval_missed_fill_us =
+        stats.missed_fill_sum_us
+        - esp_load_print_baseline.missed_fill_sum_us;
+    uint64_t interval_missed_total_us =
+        stats.missed_total_sum_us
+        - esp_load_print_baseline.missed_total_sum_us;
     fprintf(stderr,
             "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
             "max_us execute=%u render=%u fill=%u total=%u "
             "near_deadline=%u deadline_misses=%u "
             "interval_blocks=%u "
             "interval_avg_us execute=%u render=%u fill=%u total=%u "
-            "interval_near_deadline=%u interval_deadline_misses=%u\n",
+            "interval_near_deadline=%u interval_deadline_misses=%u "
+            "miss_avg_us execute=%u render=%u fill=%u total=%u "
+            "miss_stage_max_us execute=%u render=%u fill=%u "
+            "interval_render_core_avg_us core0=%u core1=%u "
+            "render_core_max_us core0=%u core1=%u\n",
             (unsigned)blocks,
             (unsigned)(stats.execute_sum_us / blocks),
             (unsigned)(stats.render_sum_us / blocks),
@@ -371,7 +412,24 @@ void amy_esp_load_diagnostics_print(void) {
             (unsigned)(interval_blocks
                            ? interval_fill_us / interval_blocks : 0),
             (unsigned)(interval_blocks ? interval_total_us / interval_blocks : 0),
-            (unsigned)interval_near, (unsigned)interval_misses);
+            (unsigned)interval_near, (unsigned)interval_misses,
+            (unsigned)(interval_misses
+                           ? interval_missed_execute_us / interval_misses : 0),
+            (unsigned)(interval_misses
+                           ? interval_missed_render_us / interval_misses : 0),
+            (unsigned)(interval_misses
+                           ? interval_missed_fill_us / interval_misses : 0),
+            (unsigned)(interval_misses
+                           ? interval_missed_total_us / interval_misses : 0),
+            (unsigned)stats.missed_execute_max_us,
+            (unsigned)stats.missed_render_max_us,
+            (unsigned)stats.missed_fill_max_us,
+            (unsigned)(interval_blocks
+                           ? interval_render_core_us[0] / interval_blocks : 0),
+            (unsigned)(interval_blocks
+                           ? interval_render_core_us[1] / interval_blocks : 0),
+            (unsigned)stats.render_core_max_us[0],
+            (unsigned)stats.render_core_max_us[1]);
     esp_load_print_baseline = stats;
 }
 #else
@@ -391,8 +449,16 @@ void esp_render_task( void * pvParameters) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // from esp_render_on_cores
         if (amy_worker_job == AMY_WORKER_REVERB_ROOM_0)
             amy_process_reverb_room(0);
-        else
+        else {
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+            uint64_t started = amy_get_us();
+#endif
             amy_render(0, AMY_OSCS/2, 1);
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+            esp_render_core_us[xPortGetCoreID()] =
+                (uint32_t)(amy_get_us() - started);
+#endif
+        }
         // Tell the caller we're done.
         xSemaphoreGive(esp_render_done_sem);  // to esp_render_on_cores
     }
@@ -405,7 +471,14 @@ void esp_render_on_cores() {
         amy_worker_job = AMY_WORKER_RENDER_OSCS;
         xTaskNotifyGive(amy_render_handle);  // to esp_render_task
         // Render me
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint64_t started = amy_get_us();
+#endif
         amy_render(AMY_OSCS/2, AMY_OSCS, 0);
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        esp_render_core_us[xPortGetCoreID()] =
+            (uint32_t)(amy_get_us() - started);
+#endif
         // Wait for the other core to finish
         xSemaphoreTake(esp_render_done_sem, portMAX_DELAY);  // from esp_render_task
     } else {

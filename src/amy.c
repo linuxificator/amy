@@ -982,6 +982,9 @@ bool osc_ref_within_voice(int rel_osc, uint16_t oscs_per_voice, const char *what
 static uint32_t flush_due_deltas();  // definition next to amy_execute_deltas()
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
 uint32_t amy_last_executed_delta_count;
+uint32_t amy_last_sequencer_us;
+uint32_t amy_last_flush_us;
+uint16_t amy_last_audible_osc_count[2];
 #endif
 
 // Take the distortion fields out of an event once they have been turned into
@@ -2565,11 +2568,17 @@ SAMPLE render_osc_wave(uint16_t osc, uint8_t core, SAMPLE* buf) {
 AMY_IRAM_ATTR void amy_render(uint16_t start, uint16_t end, uint8_t core) {
     AMY_PROFILE_START(AMY_RENDER)
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    uint16_t audible_osc_count = 0;
+#endif
     for(int bus = 0; bus <= amy_global.highest_bus; ++bus)
         bzero(fbl[core][bus], sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS); 
     SAMPLE max_max = 0;
     for(uint16_t osc=start; osc<end; osc++) {
         if(synth[osc] != NULL && synth[osc]->status == SYNTH_AUDIBLE) { // skip oscs that are silent or mod sources from playback
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+            ++audible_osc_count;
+#endif
             uint16_t bus = synth[osc]->bus;
             bzero(per_osc_fb[core][bus], AMY_BLOCK_SIZE * sizeof(SAMPLE));
             SAMPLE max_val = render_osc_wave(osc, core, per_osc_fb[core][bus]);
@@ -2620,6 +2629,9 @@ AMY_IRAM_ATTR void amy_render(uint16_t start, uint16_t end, uint8_t core) {
         } // end if audible
     }
     core_max[core] = max_max;
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    if (core < 2) amy_last_audible_osc_count[core] = audible_osc_count;
+#endif
 
     if(AMY_HAS_CHORUS && core == 0) {
         for(int bus = 0; bus <= amy_global.highest_bus; ++bus) {
@@ -2674,11 +2686,19 @@ void amy_execute_deltas() {
     AMY_PROFILE_START(AMY_EXECUTE_DELTAS)
     // Advance the sequencer on AMY (sample) time and play any due sequence
     // events, so sequencing works in any rendering context, real-time or not.
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    uint64_t diagnostic_started_us = amy_get_us();
+#endif
     sequencer_check_and_fill();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_sequencer_us = (uint32_t)(amy_get_us() - diagnostic_started_us);
+#endif
     // Make sure any CV-triggered events are added to delta queue
     update_external_cv_in();
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    diagnostic_started_us = amy_get_us();
     amy_last_executed_delta_count = flush_due_deltas();
+    amy_last_flush_us = (uint32_t)(amy_get_us() - diagnostic_started_us);
 #else
     (void)flush_due_deltas();
 #endif

@@ -1053,28 +1053,40 @@ typedef struct amy_reverb_diagnostic {
 
 typedef struct amy_esp_load_diagnostic {
     uint64_t execute_sum_us;
+    uint64_t sequencer_sum_us;
+    uint64_t flush_sum_us;
     uint64_t render_sum_us;
     uint64_t render_core_sum_us[2];
+    uint64_t audible_osc_sum[2];
     uint64_t fill_sum_us;
     uint64_t total_sum_us;
     uint32_t execute_max_us;
+    uint32_t sequencer_max_us;
+    uint32_t flush_max_us;
     uint32_t render_max_us;
     uint32_t render_core_max_us[2];
+    uint32_t audible_osc_max[2];
     uint32_t fill_max_us;
     uint32_t total_max_us;
     uint32_t total_near_deadline;
     uint32_t total_deadline_misses;
     uint64_t missed_execute_sum_us;
+    uint64_t missed_sequencer_sum_us;
+    uint64_t missed_flush_sum_us;
     uint64_t missed_render_sum_us;
     uint64_t missed_fill_sum_us;
     uint64_t missed_total_sum_us;
     uint64_t executed_delta_sum;
     uint64_t missed_executed_delta_sum;
     uint32_t missed_execute_max_us;
+    uint32_t missed_sequencer_max_us;
+    uint32_t missed_flush_max_us;
     uint32_t missed_render_max_us;
     uint32_t missed_fill_max_us;
     uint32_t executed_delta_max;
     uint32_t missed_executed_delta_max;
+    uint64_t missed_audible_osc_sum[2];
+    uint32_t missed_audible_osc_max[2];
     uint32_t blocks;
 } amy_esp_load_diagnostic_t;
 

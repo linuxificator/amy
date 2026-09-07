@@ -291,6 +291,9 @@ static volatile uint32_t esp_load_diagnostic_seq;
 static amy_esp_load_diagnostic_t esp_load_print_baseline;
 static volatile uint32_t esp_render_core_us[2];
 extern uint32_t amy_last_executed_delta_count;
+extern uint32_t amy_last_sequencer_us;
+extern uint32_t amy_last_flush_us;
+extern uint16_t amy_last_audible_osc_count[2];
 
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
@@ -300,12 +303,17 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     ++esp_load_diagnostic_seq;
     __sync_synchronize();
     stats->execute_sum_us += execute_us;
+    stats->sequencer_sum_us += amy_last_sequencer_us;
+    stats->flush_sum_us += amy_last_flush_us;
     stats->render_sum_us += render_us;
     for (uint8_t core = 0; core < 2; ++core) {
         uint32_t core_us = esp_render_core_us[core];
         stats->render_core_sum_us[core] += core_us;
         if (core_us > stats->render_core_max_us[core])
             stats->render_core_max_us[core] = core_us;
+        stats->audible_osc_sum[core] += amy_last_audible_osc_count[core];
+        if (amy_last_audible_osc_count[core] > stats->audible_osc_max[core])
+            stats->audible_osc_max[core] = amy_last_audible_osc_count[core];
     }
     stats->fill_sum_us += fill_us;
     stats->total_sum_us += total_us;
@@ -313,6 +321,10 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     if (amy_last_executed_delta_count > stats->executed_delta_max)
         stats->executed_delta_max = amy_last_executed_delta_count;
     if (execute_us > stats->execute_max_us) stats->execute_max_us = execute_us;
+    if (amy_last_sequencer_us > stats->sequencer_max_us)
+        stats->sequencer_max_us = amy_last_sequencer_us;
+    if (amy_last_flush_us > stats->flush_max_us)
+        stats->flush_max_us = amy_last_flush_us;
     if (render_us > stats->render_max_us) stats->render_max_us = render_us;
     if (fill_us > stats->fill_max_us) stats->fill_max_us = fill_us;
     if (total_us > stats->total_max_us) stats->total_max_us = total_us;
@@ -321,18 +333,32 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     if (total_us > AMY_BLOCK_US) {
         ++stats->total_deadline_misses;
         stats->missed_execute_sum_us += execute_us;
+        stats->missed_sequencer_sum_us += amy_last_sequencer_us;
+        stats->missed_flush_sum_us += amy_last_flush_us;
         stats->missed_render_sum_us += render_us;
         stats->missed_fill_sum_us += fill_us;
         stats->missed_total_sum_us += total_us;
         stats->missed_executed_delta_sum += amy_last_executed_delta_count;
         if (execute_us > stats->missed_execute_max_us)
             stats->missed_execute_max_us = execute_us;
+        if (amy_last_sequencer_us > stats->missed_sequencer_max_us)
+            stats->missed_sequencer_max_us = amy_last_sequencer_us;
+        if (amy_last_flush_us > stats->missed_flush_max_us)
+            stats->missed_flush_max_us = amy_last_flush_us;
         if (render_us > stats->missed_render_max_us)
             stats->missed_render_max_us = render_us;
         if (fill_us > stats->missed_fill_max_us)
             stats->missed_fill_max_us = fill_us;
         if (amy_last_executed_delta_count > stats->missed_executed_delta_max)
             stats->missed_executed_delta_max = amy_last_executed_delta_count;
+        for (uint8_t core = 0; core < 2; ++core) {
+            stats->missed_audible_osc_sum[core] +=
+                amy_last_audible_osc_count[core];
+            if (amy_last_audible_osc_count[core]
+                    > stats->missed_audible_osc_max[core])
+                stats->missed_audible_osc_max[core] =
+                    amy_last_audible_osc_count[core];
+        }
     }
     ++stats->blocks;
     __sync_synchronize();
@@ -397,6 +423,26 @@ void amy_esp_load_diagnostics_print(void) {
     uint64_t interval_missed_delta_count =
         stats.missed_executed_delta_sum
         - esp_load_print_baseline.missed_executed_delta_sum;
+    uint64_t interval_sequencer_us =
+        stats.sequencer_sum_us - esp_load_print_baseline.sequencer_sum_us;
+    uint64_t interval_flush_us =
+        stats.flush_sum_us - esp_load_print_baseline.flush_sum_us;
+    uint64_t interval_missed_sequencer_us =
+        stats.missed_sequencer_sum_us
+        - esp_load_print_baseline.missed_sequencer_sum_us;
+    uint64_t interval_missed_flush_us =
+        stats.missed_flush_sum_us
+        - esp_load_print_baseline.missed_flush_sum_us;
+    uint64_t interval_audible_osc[2];
+    uint64_t interval_missed_audible_osc[2];
+    for (uint8_t core = 0; core < 2; ++core) {
+        interval_audible_osc[core] =
+            stats.audible_osc_sum[core]
+            - esp_load_print_baseline.audible_osc_sum[core];
+        interval_missed_audible_osc[core] =
+            stats.missed_audible_osc_sum[core]
+            - esp_load_print_baseline.missed_audible_osc_sum[core];
+    }
     fprintf(stderr,
             "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
             "max_us execute=%u render=%u fill=%u total=%u "
@@ -409,7 +455,15 @@ void amy_esp_load_diagnostics_print(void) {
             "interval_render_core_avg_us core0=%u core1=%u "
             "render_core_max_us core0=%u core1=%u "
             "deltas_avg=%u deltas_max=%u "
-            "miss_deltas_avg=%u miss_deltas_max=%u\n",
+            "miss_deltas_avg=%u miss_deltas_max=%u "
+            "interval_execute_detail_avg_us sequencer=%u flush=%u "
+            "execute_detail_max_us sequencer=%u flush=%u "
+            "miss_execute_detail_avg_us sequencer=%u flush=%u "
+            "miss_execute_detail_max_us sequencer=%u flush=%u "
+            "audible_oscs_avg core0=%u core1=%u "
+            "audible_oscs_max core0=%u core1=%u "
+            "miss_audible_oscs_avg core0=%u core1=%u "
+            "miss_audible_oscs_max core0=%u core1=%u\n",
             (unsigned)blocks,
             (unsigned)(stats.execute_sum_us / blocks),
             (unsigned)(stats.render_sum_us / blocks),
@@ -450,7 +504,28 @@ void amy_esp_load_diagnostics_print(void) {
             (unsigned)stats.executed_delta_max,
             (unsigned)(interval_misses
                            ? interval_missed_delta_count / interval_misses : 0),
-            (unsigned)stats.missed_executed_delta_max);
+            (unsigned)stats.missed_executed_delta_max,
+            (unsigned)(interval_blocks
+                           ? interval_sequencer_us / interval_blocks : 0),
+            (unsigned)(interval_blocks ? interval_flush_us / interval_blocks : 0),
+            (unsigned)stats.sequencer_max_us,
+            (unsigned)stats.flush_max_us,
+            (unsigned)(interval_misses
+                           ? interval_missed_sequencer_us / interval_misses : 0),
+            (unsigned)(interval_misses
+                           ? interval_missed_flush_us / interval_misses : 0),
+            (unsigned)stats.missed_sequencer_max_us,
+            (unsigned)stats.missed_flush_max_us,
+            (unsigned)(interval_blocks ? interval_audible_osc[0] / interval_blocks : 0),
+            (unsigned)(interval_blocks ? interval_audible_osc[1] / interval_blocks : 0),
+            (unsigned)stats.audible_osc_max[0],
+            (unsigned)stats.audible_osc_max[1],
+            (unsigned)(interval_misses
+                           ? interval_missed_audible_osc[0] / interval_misses : 0),
+            (unsigned)(interval_misses
+                           ? interval_missed_audible_osc[1] / interval_misses : 0),
+            (unsigned)stats.missed_audible_osc_max[0],
+            (unsigned)stats.missed_audible_osc_max[1]);
     esp_load_print_baseline = stats;
 }
 #else

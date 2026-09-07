@@ -586,7 +586,8 @@ void amy_reverb_diagnostics_print(void) {
         if (!amy_reverb_diagnostics_get(room, &diagnostic)) continue;
         fprintf(stderr,
                 "AMY reverb room %u: calls=%" PRIu64 " avg_us=%" PRIu64
-                " max_us=%u deadline_misses=%u core_mask=0x%x arena=%zu/%zu\n",
+                " max_us=%" PRIu32 " deadline_misses=%" PRIu32
+                " core_mask=0x%" PRIx32 " arena=%zu/%zu\n",
                 room, diagnostic.calls,
                 diagnostic.calls ? diagnostic.total_us / diagnostic.calls : 0,
                 diagnostic.max_us, diagnostic.deadline_misses,
@@ -596,7 +597,8 @@ void amy_reverb_diagnostics_print(void) {
     if (amy_reverb_stage_diagnostics_get(&diagnostic))
         fprintf(stderr,
                 "AMY reverb stage: calls=%" PRIu64 " avg_us=%" PRIu64
-                " max_us=%u deadline_misses=%u core_mask=0x%x\n",
+                " max_us=%" PRIu32 " deadline_misses=%" PRIu32
+                " core_mask=0x%" PRIx32 "\n",
                 diagnostic.calls,
                 diagnostic.calls ? diagnostic.total_us / diagnostic.calls : 0,
                 diagnostic.max_us, diagnostic.deadline_misses,

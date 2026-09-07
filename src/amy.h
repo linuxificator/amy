@@ -1051,6 +1051,18 @@ typedef struct amy_reverb_diagnostic {
     uint32_t core_mask;
 } amy_reverb_diagnostic_t;
 
+typedef struct amy_esp_load_diagnostic {
+    uint64_t execute_sum_us;
+    uint64_t render_sum_us;
+    uint64_t fill_sum_us;
+    uint64_t total_sum_us;
+    uint32_t execute_max_us;
+    uint32_t render_max_us;
+    uint32_t fill_max_us;
+    uint32_t total_max_us;
+    uint32_t blocks;
+} amy_esp_load_diagnostic_t;
+
 typedef struct shared_reverb_state {
     reverb_state_t effect;
     SAMPLE *block;  // non-interleaved stereo send accumulator / wet return
@@ -1231,6 +1243,10 @@ bool amy_reverb_diagnostics_get(uint16_t room,
                                 amy_reverb_diagnostic_t *result);
 bool amy_reverb_stage_diagnostics_get(amy_reverb_diagnostic_t *result);
 void amy_reverb_diagnostics_print(void);
+#ifdef ESP_PLATFORM
+bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result);
+void amy_esp_load_diagnostics_print(void);
+#endif
 void config_chorus(uint16_t bus, float level, uint16_t max_delay, float lfo_freq, float depth);
 void config_echo(uint16_t bus, float level, float delay_ms, float max_delay_ms, float feedback, float filter_coef);
 void osc_note_on(uint16_t osc, float initial_freq);

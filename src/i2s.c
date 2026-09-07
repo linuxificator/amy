@@ -286,26 +286,16 @@ typedef enum {
 static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
 
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
-typedef struct {
-    uint64_t window_started_us;
-    uint64_t execute_sum_us;
-    uint64_t render_sum_us;
-    uint64_t fill_sum_us;
-    uint64_t total_sum_us;
-    uint32_t execute_max_us;
-    uint32_t render_max_us;
-    uint32_t fill_max_us;
-    uint32_t total_max_us;
-    uint32_t blocks;
-} esp_load_diagnostic_t;
-
-static esp_load_diagnostic_t esp_load_diagnostic;
+static amy_esp_load_diagnostic_t esp_load_diagnostic;
+static volatile uint32_t esp_load_diagnostic_seq;
 
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
                                        uint32_t fill_us,
                                        uint32_t total_us) {
-    esp_load_diagnostic_t *stats = &esp_load_diagnostic;
+    amy_esp_load_diagnostic_t *stats = &esp_load_diagnostic;
+    ++esp_load_diagnostic_seq;
+    __sync_synchronize();
     stats->execute_sum_us += execute_us;
     stats->render_sum_us += render_us;
     stats->fill_sum_us += fill_us;
@@ -315,23 +305,49 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     if (fill_us > stats->fill_max_us) stats->fill_max_us = fill_us;
     if (total_us > stats->total_max_us) stats->total_max_us = total_us;
     ++stats->blocks;
+    __sync_synchronize();
+    ++esp_load_diagnostic_seq;
+}
 
-    uint64_t now_us = amy_get_us();
-    if (stats->window_started_us == 0) stats->window_started_us = now_us;
-    if (now_us - stats->window_started_us < 2000000 || stats->blocks == 0) return;
+bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result) {
+    if (result == NULL) return false;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        uint32_t before = esp_load_diagnostic_seq;
+        if (before & 1u) continue;
+        __sync_synchronize();
+        *result = esp_load_diagnostic;
+        __sync_synchronize();
+        if (before == esp_load_diagnostic_seq) return true;
+    }
+    return false;
+}
 
-    uint32_t blocks = stats->blocks;
+void amy_esp_load_diagnostics_print(void) {
+    amy_esp_load_diagnostic_t stats;
+    if (!amy_esp_load_diagnostics_get(&stats) || stats.blocks == 0) {
+        fprintf(stderr, "AMY ESP load: no samples\n");
+        return;
+    }
+    uint32_t blocks = stats.blocks;
     fprintf(stderr,
             "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
             "max_us execute=%u render=%u fill=%u total=%u\n",
             (unsigned)blocks,
-            (unsigned)(stats->execute_sum_us / blocks),
-            (unsigned)(stats->render_sum_us / blocks),
-            (unsigned)(stats->fill_sum_us / blocks),
-            (unsigned)(stats->total_sum_us / blocks),
-            (unsigned)stats->execute_max_us, (unsigned)stats->render_max_us,
-            (unsigned)stats->fill_max_us, (unsigned)stats->total_max_us);
-    *stats = (esp_load_diagnostic_t){ .window_started_us = now_us };
+            (unsigned)(stats.execute_sum_us / blocks),
+            (unsigned)(stats.render_sum_us / blocks),
+            (unsigned)(stats.fill_sum_us / blocks),
+            (unsigned)(stats.total_sum_us / blocks),
+            (unsigned)stats.execute_max_us, (unsigned)stats.render_max_us,
+            (unsigned)stats.fill_max_us, (unsigned)stats.total_max_us);
+}
+#else
+bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result) {
+    if (result != NULL) *result = (amy_esp_load_diagnostic_t){0};
+    return false;
+}
+
+void amy_esp_load_diagnostics_print(void) {
+    fprintf(stderr, "AMY ESP load diagnostics were not compiled in\n");
 }
 #endif
 

@@ -278,6 +278,56 @@ TaskHandle_t amy_update_handle = NULL;
 // caller combine the worker's half-written buffer.
 static SemaphoreHandle_t esp_render_done_sem = NULL;
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+typedef struct {
+    uint64_t window_started_us;
+    uint64_t execute_sum_us;
+    uint64_t render_sum_us;
+    uint64_t fill_sum_us;
+    uint64_t total_sum_us;
+    uint32_t execute_max_us;
+    uint32_t render_max_us;
+    uint32_t fill_max_us;
+    uint32_t total_max_us;
+    uint32_t blocks;
+} esp_load_diagnostic_t;
+
+static esp_load_diagnostic_t esp_load_diagnostic;
+
+static void esp_load_diagnostic_record(uint32_t execute_us,
+                                       uint32_t render_us,
+                                       uint32_t fill_us,
+                                       uint32_t total_us) {
+    esp_load_diagnostic_t *stats = &esp_load_diagnostic;
+    stats->execute_sum_us += execute_us;
+    stats->render_sum_us += render_us;
+    stats->fill_sum_us += fill_us;
+    stats->total_sum_us += total_us;
+    if (execute_us > stats->execute_max_us) stats->execute_max_us = execute_us;
+    if (render_us > stats->render_max_us) stats->render_max_us = render_us;
+    if (fill_us > stats->fill_max_us) stats->fill_max_us = fill_us;
+    if (total_us > stats->total_max_us) stats->total_max_us = total_us;
+    ++stats->blocks;
+
+    uint64_t now_us = amy_get_us();
+    if (stats->window_started_us == 0) stats->window_started_us = now_us;
+    if (now_us - stats->window_started_us < 2000000 || stats->blocks == 0) return;
+
+    uint32_t blocks = stats->blocks;
+    fprintf(stderr,
+            "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
+            "max_us execute=%u render=%u fill=%u total=%u\n",
+            (unsigned)blocks,
+            (unsigned)(stats->execute_sum_us / blocks),
+            (unsigned)(stats->render_sum_us / blocks),
+            (unsigned)(stats->fill_sum_us / blocks),
+            (unsigned)(stats->total_sum_us / blocks),
+            (unsigned)stats->execute_max_us, (unsigned)stats->render_max_us,
+            (unsigned)stats->fill_max_us, (unsigned)stats->total_max_us);
+    *stats = (esp_load_diagnostic_t){ .window_started_us = now_us };
+}
+#endif
+
 // Render the second core
 void esp_render_task( void * pvParameters) {
     while(1) {
@@ -357,14 +407,35 @@ void esp_fill_audio_buffer_task(void *pvParameters) {
         int64_t _rl_start_t = esp_timer_get_time();
 #endif // ARDUINO_SPEEDTEST
         // Get ready to render
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint64_t stage_started_us = amy_get_us();
+#endif
         amy_execute_deltas();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint32_t execute_us = (uint32_t)(amy_get_us() - stage_started_us);
+#endif
 
         // Render on whichever cores we have available.
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        stage_started_us = amy_get_us();
+#endif
         esp_render_on_cores();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint32_t render_us = (uint32_t)(amy_get_us() - stage_started_us);
+#endif
 
         // Write to i2s
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        stage_started_us = amy_get_us();
+#endif
         output_sample_type *block = amy_fill_buffer();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint32_t fill_us = (uint32_t)(amy_get_us() - stage_started_us);
+#endif
         uint32_t busy_us = (uint32_t)(amy_get_us() - t);
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        esp_load_diagnostic_record(execute_us, render_us, fill_us, busy_us);
+#endif
 	AMY_PROFILE_STOP(AMY_ESP_FILL_BUFFER)
 
         last_audio_buffer = block;

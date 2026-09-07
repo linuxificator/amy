@@ -1103,6 +1103,9 @@ typedef struct amy_esp_load_diagnostic {
     uint32_t missed_executed_delta_max;
     uint64_t missed_audible_osc_sum[2];
     uint32_t missed_audible_osc_max[2];
+    uint64_t i2s_unpaced_blocks;
+    uint32_t overload_debt_max_us;
+    uint32_t overload_yields;
     uint32_t blocks;
 } amy_esp_load_diagnostic_t;
 

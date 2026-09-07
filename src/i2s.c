@@ -302,7 +302,10 @@ extern uint32_t amy_last_sequence_tick_count;
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
                                        uint32_t fill_us,
-                                       uint32_t total_us) {
+                                       uint32_t total_us,
+                                       uint32_t blocked_us,
+                                       uint32_t overload_debt_us,
+                                       bool overload_yielded) {
     amy_esp_load_diagnostic_t *stats = &esp_load_diagnostic;
     ++esp_load_diagnostic_seq;
     __sync_synchronize();
@@ -326,6 +329,10 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     stats->fill_sum_us += fill_us;
     stats->total_sum_us += total_us;
     stats->executed_delta_sum += amy_last_executed_delta_count;
+    if (blocked_us < 150) ++stats->i2s_unpaced_blocks;
+    if (overload_debt_us > stats->overload_debt_max_us)
+        stats->overload_debt_max_us = overload_debt_us;
+    if (overload_yielded) ++stats->overload_yields;
     if (amy_last_executed_delta_count > stats->executed_delta_max)
         stats->executed_delta_max = amy_last_executed_delta_count;
     if (execute_us > stats->execute_max_us) stats->execute_max_us = execute_us;
@@ -435,6 +442,11 @@ void amy_esp_load_diagnostics_print(void) {
     uint32_t interval_misses =
         stats.total_deadline_misses
         - esp_load_print_baseline.total_deadline_misses;
+    uint64_t interval_unpaced =
+        stats.i2s_unpaced_blocks
+        - esp_load_print_baseline.i2s_unpaced_blocks;
+    uint32_t interval_yields =
+        stats.overload_yields - esp_load_print_baseline.overload_yields;
     uint64_t interval_missed_execute_us =
         stats.missed_execute_sum_us
         - esp_load_print_baseline.missed_execute_sum_us;
@@ -503,6 +515,9 @@ void amy_esp_load_diagnostics_print(void) {
             "interval_blocks=%u "
             "interval_avg_us execute=%u render=%u fill=%u total=%u "
             "interval_near_deadline=%u interval_deadline_misses=%u "
+            "i2s_unpaced=%" PRIu64 " interval_i2s_unpaced=%" PRIu64 " "
+            "overload_debt_max_us=%u overload_yields=%u "
+            "interval_overload_yields=%u "
             "miss_avg_us execute=%u render=%u fill=%u total=%u "
             "miss_stage_max_us execute=%u render=%u fill=%u "
             "interval_render_core_avg_us core0=%u core1=%u "
@@ -539,6 +554,11 @@ void amy_esp_load_diagnostics_print(void) {
                            ? interval_fill_us / interval_blocks : 0),
             (unsigned)(interval_blocks ? interval_total_us / interval_blocks : 0),
             (unsigned)interval_near, (unsigned)interval_misses,
+            stats.i2s_unpaced_blocks,
+            interval_unpaced,
+            (unsigned)stats.overload_debt_max_us,
+            (unsigned)stats.overload_yields,
+            (unsigned)interval_yields,
             (unsigned)(interval_misses
                            ? interval_missed_execute_us / interval_misses : 0),
             (unsigned)(interval_misses
@@ -720,6 +740,11 @@ static int32_t _rl_render_us = 0;
 
 void esp_fill_audio_buffer_task(void *pvParameters) {
     (void)pvParameters;
+    // A single expensive block is not proof of sustained overload.  DMA can
+    // absorb that jitter, provided a cheaper following block earns the time
+    // back.  Track only the unpaced render-time debt so the overload escape
+    // below is reserved for a workload whose average really cannot keep up.
+    uint32_t overload_debt_us = 0;
     while(1) {
         int64_t t;
         uint32_t blocked_us = 0;
@@ -760,9 +785,6 @@ void esp_fill_audio_buffer_task(void *pvParameters) {
         uint32_t fill_us = (uint32_t)(amy_get_us() - stage_started_us);
 #endif
         uint32_t busy_us = (uint32_t)(amy_get_us() - t);
-#ifdef AMY_ESP_LOAD_DIAGNOSTIC
-        esp_load_diagnostic_record(execute_us, render_us, fill_us, busy_us);
-#endif
 	AMY_PROFILE_STOP(AMY_ESP_FILL_BUFFER)
 
         last_audio_buffer = block;
@@ -797,18 +819,42 @@ void esp_fill_audio_buffer_task(void *pvParameters) {
         // i2s DMA write (or the update-sync wait) above, which is when lower-priority
         // tasks on this core get to run.
         amy_overload_check(busy_us);
-        // If rendering genuinely can't keep up (a block costs at least its own
-        // real-time budget) AND the audio output didn't block, we're past
-        // overloaded, and this max-priority task would starve everything else
-        // on this core (USB, MIDI, the host app).  Audio is already breaking
-        // up, so give the rest of the system a tick.
-        //
-        // Both conditions matter: with a small DMA ring a healthy just-in-time
-        // iteration can also see blocked_us == 0, and one tick here (10 ms at
-        // a 100 Hz tick rate) can be bigger than the whole ring -- a single
-        // spurious delay underruns it, the drained ring makes the next write
-        // not block either, and the delay re-arms forever (#1118).
-        if (busy_us >= AMY_BLOCK_US && blocked_us < 150) vTaskDelay(1);
+        // A blocked write means DMA is full and therefore clears any prior
+        // render-time debt.  While the write is unpaced, accumulate only the
+        // amount over budget and repay it with subsequent under-budget blocks.
+        // This lets DMA absorb isolated sequencer/event bursts instead of
+        // turning each one into a much larger scheduler-induced dropout.
+        if (blocked_us >= 150) {
+            overload_debt_us = 0;
+        } else if (busy_us > AMY_BLOCK_US) {
+            uint32_t overrun_us = busy_us - AMY_BLOCK_US;
+            if (UINT32_MAX - overload_debt_us < overrun_us)
+                overload_debt_us = UINT32_MAX;
+            else
+                overload_debt_us += overrun_us;
+        } else {
+            uint32_t recovered_us = AMY_BLOCK_US - busy_us;
+            overload_debt_us = recovered_us >= overload_debt_us
+                             ? 0 : overload_debt_us - recovered_us;
+        }
+
+        // Yield only after sustained unpaced overload has accumulated at least
+        // the delay we are about to impose.  At that point audio is already
+        // falling behind on average; yielding prevents this max-priority loop
+        // from starving USB/MIDI and the host application.
+        const uint32_t scheduler_tick_us =
+            (1000000u + configTICK_RATE_HZ - 1u) / configTICK_RATE_HZ;
+        bool overload_yielded = overload_debt_us >= scheduler_tick_us;
+        uint32_t recorded_overload_debt_us = overload_debt_us;
+        if (overload_yielded) {
+            overload_debt_us = 0;
+            vTaskDelay(1);
+        }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        esp_load_diagnostic_record(execute_us, render_us, fill_us, busy_us,
+                                   blocked_us, recorded_overload_debt_us,
+                                   overload_yielded);
+#endif
     }
 }
 

@@ -64,13 +64,17 @@ typedef struct stored_sequence_event_t {
 
 typedef struct stored_sequence_definition_t {
     stored_sequence_event_t *events;
-    // One-shot events stay in append order above for compatibility. This
-    // separate stable tick order lets finite executions advance cursors
-    // instead of rescanning every event on every sequencer tick.
-    uint32_t *one_shot_order;
+    // Events stay in append order above for compatibility.  This separate
+    // stable tick order lets finite sequences and the common case where all
+    // events share one period advance cursors instead of rescanning every
+    // event on every sequencer tick.
+    uint32_t *event_order;
     uint32_t event_count;
-    uint32_t one_shot_event_count;
     uint32_t last_one_shot_tick;
+    // UINT32_MAX means the definition mixes periods and uses the generic
+    // append-order scan.  Zero is a finite sequence; any other value is the
+    // period shared by every event in the fast path.
+    uint32_t schedule_period;
     bool has_periodic_event;
     bool has_control_event;
     bool has_regular_event;
@@ -146,7 +150,7 @@ static void stored_sequence_definition_destroy(
     for (uint32_t i = 0; i < definition->event_count; ++i)
         if (definition->events[i].wire != NULL) free(definition->events[i].wire);
     free(definition->events);
-    free(definition->one_shot_order);
+    free(definition->event_order);
     free(definition);
 }
 
@@ -215,17 +219,17 @@ static stored_sequence_definition_t *stored_sequence_definition_new(void) {
         free(definition);
         return NULL;
     }
-    definition->one_shot_order = (uint32_t *)stored_sequence_allocate(
+    definition->event_order = (uint32_t *)stored_sequence_allocate(
         stored_sequence_order_bytes, amy_global.config.ram_caps_synth);
-    if (definition->one_shot_order == NULL) {
+    if (definition->event_order == NULL) {
         free(definition->events);
         free(definition);
         return NULL;
     }
     memset(definition->events, 0, stored_sequence_event_bytes);
     definition->event_count = 0;
-    definition->one_shot_event_count = 0;
     definition->last_one_shot_tick = 0;
+    definition->schedule_period = 0;
     definition->has_periodic_event = false;
     definition->has_control_event = false;
     definition->has_regular_event = false;
@@ -248,13 +252,13 @@ static stored_sequence_definition_t *stored_sequence_definition_clone(
     if (copy == NULL) return NULL;
     if (source == NULL) return copy;
     copy->event_count = source->event_count;
-    copy->one_shot_event_count = source->one_shot_event_count;
     copy->last_one_shot_tick = source->last_one_shot_tick;
+    copy->schedule_period = source->schedule_period;
     copy->has_periodic_event = source->has_periodic_event;
     copy->has_control_event = source->has_control_event;
     copy->has_regular_event = source->has_regular_event;
-    memcpy(copy->one_shot_order, source->one_shot_order,
-           source->one_shot_event_count * sizeof(*copy->one_shot_order));
+    memcpy(copy->event_order, source->event_order,
+           source->event_count * sizeof(*copy->event_order));
     for (uint32_t i = 0; i < source->event_count; ++i) {
         const stored_sequence_event_t *from = &source->events[i];
         copy->events[i].wire = stored_sequence_wire_copy(from->wire);
@@ -427,11 +431,11 @@ void sequencer_debug() {
         ++stored_active;
         fprintf(stderr,
                 "stored execution slot %" PRIu32 " tag %" PRIu32
-                " events %" PRIu32 " one_shot %" PRIu32
+                " events %" PRIu32 " schedule_period %" PRIu32
                 " periodic %u controls %u regular %u start %" PRIu32
                 " elapsed %" PRIu32 "\n",
                 slot, execution->tag, definition->event_count,
-                definition->one_shot_event_count,
+                definition->schedule_period,
                 definition->has_periodic_event ? 1u : 0u,
                 definition->has_control_event ? 1u : 0u,
                 definition->has_regular_event ? 1u : 0u,
@@ -606,7 +610,12 @@ static stored_sequence_definition_t **stored_sequence_slot(uint32_t tag) {
 static void stored_sequence_definition_append_owned(
         stored_sequence_definition_t *definition, uint32_t tick,
         uint32_t period, char *wire) {
-    uint32_t event_index = definition->event_count++;
+    uint32_t event_index = definition->event_count;
+    if (event_index == 0)
+        definition->schedule_period = period;
+    else if (definition->schedule_period != period)
+        definition->schedule_period = UINT32_MAX;
+    definition->event_count++;
     stored_sequence_event_t *event = &definition->events[event_index];
     event->wire = wire;
     event->tick = tick;
@@ -618,22 +627,21 @@ static void stored_sequence_definition_append_owned(
     if (period != 0) {
         definition->has_periodic_event = true;
     } else {
-        // Insert after existing events at the same tick. Event storage remains
-        // in caller append order, while this index gives finite executions a
-        // stable chronological walk without changing same-tick dispatch.
-        uint32_t order_index = definition->one_shot_event_count;
-        while (order_index != 0) {
-            uint32_t previous =
-                definition->one_shot_order[order_index - 1];
-            if (definition->events[previous].tick <= tick) break;
-            definition->one_shot_order[order_index] = previous;
-            --order_index;
-        }
-        definition->one_shot_order[order_index] = event_index;
-        definition->one_shot_event_count++;
         if (tick > definition->last_one_shot_tick)
             definition->last_one_shot_tick = tick;
     }
+    // Insert after existing events at the same tick. Event storage remains in
+    // caller append order. The order is used only when all periods match, so
+    // tick order is the exact chronological order within each finite run or
+    // periodic cycle.
+    uint32_t order_index = event_index;
+    while (order_index != 0) {
+        uint32_t previous = definition->event_order[order_index - 1];
+        if (definition->events[previous].tick <= tick) break;
+        definition->event_order[order_index] = previous;
+        --order_index;
+    }
+    definition->event_order[order_index] = event_index;
 }
 
 // A candidate owns the incoming wire in its final event. If publication loses
@@ -1018,14 +1026,20 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
     bool suppress = !controls && execution->gated;
     uint32_t ordered_start = 0;
     uint32_t ordered_end = 0;
-    if (!definition->has_periodic_event) {
-        uint32_t *cursor = controls ? &execution->next_control_order
-                                    : &execution->next_event_order;
+    bool ordered_schedule = definition->schedule_period != UINT32_MAX;
+    uint32_t schedule_tick = elapsed;
+    uint32_t *cursor = controls ? &execution->next_control_order
+                                : &execution->next_event_order;
+    if (ordered_schedule && definition->schedule_period != 0) {
+        schedule_tick %= definition->schedule_period;
+        if (schedule_tick == 0) *cursor = 0;
+    }
+    if (ordered_schedule) {
         ordered_start = *cursor;
         ordered_end = ordered_start;
-        while (ordered_end < definition->one_shot_event_count) {
-            uint32_t event_index = definition->one_shot_order[ordered_end];
-            if (definition->events[event_index].tick > elapsed) break;
+        while (ordered_end < definition->event_count) {
+            uint32_t event_index = definition->event_order[ordered_end];
+            if (definition->events[event_index].tick > schedule_tick) break;
             ++ordered_end;
         }
         // Advance before dispatch because an HC payload can recursively stop
@@ -1036,17 +1050,20 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
     definition->refs++;
     amy_release_lock();
 
+    bool dispatched_control = false;
     if (!suppress) {
-        if (!definition->has_periodic_event) {
+        if (ordered_schedule) {
             for (uint32_t order_index = ordered_start;
                  order_index < ordered_end; ++order_index) {
                 uint32_t event_index =
-                    definition->one_shot_order[order_index];
+                    definition->event_order[order_index];
                 stored_sequence_event_t *event =
                     &definition->events[event_index];
-                if (event->tick == elapsed
-                    && stored_sequence_event_is_control(event) == controls)
+                if (event->tick == schedule_tick
+                    && stored_sequence_event_is_control(event) == controls) {
+                    if (controls) dispatched_control = true;
                     stored_sequence_play_wire(event->wire, tick);
+                }
             }
         } else {
             for (uint32_t event_index = 0;
@@ -1054,8 +1071,10 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
                 stored_sequence_event_t *event =
                     &definition->events[event_index];
                 if (stored_sequence_event_is_control(event) == controls
-                    && stored_sequence_event_hits(event, elapsed))
+                    && stored_sequence_event_hits(event, elapsed)) {
+                    if (controls) dispatched_control = true;
                     stored_sequence_play_wire(event->wire, tick);
+                }
             }
         }
     }
@@ -1069,7 +1088,10 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
         && execution->start_tick == tick - elapsed)
         stored_sequence_execution_release_deferred(execution);
     amy_release_lock();
-    return true;
+    // The control traversal needs another pass only when a due control may
+    // have started an execution in an already-visited slot. Merely visiting a
+    // periodic control definition must not force a second full slot scan.
+    return controls && dispatched_control;
 }
 
 static void stored_sequence_process_controls(uint32_t tick) {

@@ -141,6 +141,46 @@ static void test_out_of_order_one_shots_keep_musical_order(void) {
           "tick order is chronological and same-tick order is stable");
 }
 
+static void test_uniform_periodic_events_keep_musical_order(void) {
+    printf("uniform periodic events use tick order and stable ties\n");
+    sequencer_reset();
+    clear_marks();
+    amy_add_message("H3,8,15zPlateZ");
+    amy_add_message("H1,8,15zPearly-firstZ");
+    amy_add_message("H1,8,15zPearly-secondZ");
+    amy_add_message("HC15,1,0Z");
+    uint32_t start = sequencer_ticks() + 1;
+    clock_to(start + 11);
+    CHECK(mark_count == 6, "three periodic events fired in two cycles");
+    CHECK(mark_count == 6
+          && !strcmp(marks[0].name, "early-first")
+          && !strcmp(marks[1].name, "early-second")
+          && !strcmp(marks[2].name, "late")
+          && !strcmp(marks[3].name, "early-first")
+          && !strcmp(marks[4].name, "early-second")
+          && !strcmp(marks[5].name, "late"),
+          "periodic tick order is chronological and same-tick order is stable");
+}
+
+static void test_mixed_periods_retain_generic_append_order(void) {
+    printf("mixed periodic schedules retain generic append order\n");
+    sequencer_reset();
+    clear_marks();
+    amy_add_message("H0,2,15zPtwoZ");
+    amy_add_message("H1,3,15zPthreeZ");
+    amy_add_message("HC15,1,0Z");
+    uint32_t start = sequencer_ticks() + 1;
+    clock_to(start + 4);
+    CHECK(mark_count == 5, "both mixed periods keep repeating");
+    CHECK(mark_count == 5
+          && !strcmp(marks[0].name, "two")
+          && !strcmp(marks[1].name, "three")
+          && !strcmp(marks[2].name, "two")
+          && !strcmp(marks[3].name, "two")
+          && !strcmp(marks[4].name, "three"),
+          "coincident mixed-period events retain caller append order");
+}
+
 static void test_empty_tick_zero_is_reset_but_payload_is_an_event(void) {
     printf("empty tick-zero reset remains distinct from a tick-zero event\n");
     sequencer_reset();
@@ -676,6 +716,8 @@ int main(void) {
     test_legacy_c_event_wire_is_unchanged();
     test_repeated_tag_and_one_shot_lifetime();
     test_out_of_order_one_shots_keep_musical_order();
+    test_uniform_periodic_events_keep_musical_order();
+    test_mixed_periods_retain_generic_append_order();
     test_empty_tick_zero_is_reset_but_payload_is_an_event();
     test_active_definition_is_immutable();
     test_append_while_active_uses_copy_on_write();

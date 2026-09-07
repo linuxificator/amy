@@ -1068,9 +1068,13 @@ typedef struct amy_esp_load_diagnostic {
     uint64_t missed_render_sum_us;
     uint64_t missed_fill_sum_us;
     uint64_t missed_total_sum_us;
+    uint64_t executed_delta_sum;
+    uint64_t missed_executed_delta_sum;
     uint32_t missed_execute_max_us;
     uint32_t missed_render_max_us;
     uint32_t missed_fill_max_us;
+    uint32_t executed_delta_max;
+    uint32_t missed_executed_delta_max;
     uint32_t blocks;
 } amy_esp_load_diagnostic_t;
 

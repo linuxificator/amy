@@ -290,6 +290,7 @@ static amy_esp_load_diagnostic_t esp_load_diagnostic;
 static volatile uint32_t esp_load_diagnostic_seq;
 static amy_esp_load_diagnostic_t esp_load_print_baseline;
 static volatile uint32_t esp_render_core_us[2];
+extern uint32_t amy_last_executed_delta_count;
 
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
@@ -308,6 +309,9 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     }
     stats->fill_sum_us += fill_us;
     stats->total_sum_us += total_us;
+    stats->executed_delta_sum += amy_last_executed_delta_count;
+    if (amy_last_executed_delta_count > stats->executed_delta_max)
+        stats->executed_delta_max = amy_last_executed_delta_count;
     if (execute_us > stats->execute_max_us) stats->execute_max_us = execute_us;
     if (render_us > stats->render_max_us) stats->render_max_us = render_us;
     if (fill_us > stats->fill_max_us) stats->fill_max_us = fill_us;
@@ -320,12 +324,15 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
         stats->missed_render_sum_us += render_us;
         stats->missed_fill_sum_us += fill_us;
         stats->missed_total_sum_us += total_us;
+        stats->missed_executed_delta_sum += amy_last_executed_delta_count;
         if (execute_us > stats->missed_execute_max_us)
             stats->missed_execute_max_us = execute_us;
         if (render_us > stats->missed_render_max_us)
             stats->missed_render_max_us = render_us;
         if (fill_us > stats->missed_fill_max_us)
             stats->missed_fill_max_us = fill_us;
+        if (amy_last_executed_delta_count > stats->missed_executed_delta_max)
+            stats->missed_executed_delta_max = amy_last_executed_delta_count;
     }
     ++stats->blocks;
     __sync_synchronize();
@@ -384,6 +391,12 @@ void amy_esp_load_diagnostics_print(void) {
     uint64_t interval_missed_total_us =
         stats.missed_total_sum_us
         - esp_load_print_baseline.missed_total_sum_us;
+    uint64_t interval_delta_count =
+        stats.executed_delta_sum
+        - esp_load_print_baseline.executed_delta_sum;
+    uint64_t interval_missed_delta_count =
+        stats.missed_executed_delta_sum
+        - esp_load_print_baseline.missed_executed_delta_sum;
     fprintf(stderr,
             "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
             "max_us execute=%u render=%u fill=%u total=%u "
@@ -394,7 +407,9 @@ void amy_esp_load_diagnostics_print(void) {
             "miss_avg_us execute=%u render=%u fill=%u total=%u "
             "miss_stage_max_us execute=%u render=%u fill=%u "
             "interval_render_core_avg_us core0=%u core1=%u "
-            "render_core_max_us core0=%u core1=%u\n",
+            "render_core_max_us core0=%u core1=%u "
+            "deltas_avg=%u deltas_max=%u "
+            "miss_deltas_avg=%u miss_deltas_max=%u\n",
             (unsigned)blocks,
             (unsigned)(stats.execute_sum_us / blocks),
             (unsigned)(stats.render_sum_us / blocks),
@@ -429,7 +444,13 @@ void amy_esp_load_diagnostics_print(void) {
             (unsigned)(interval_blocks
                            ? interval_render_core_us[1] / interval_blocks : 0),
             (unsigned)stats.render_core_max_us[0],
-            (unsigned)stats.render_core_max_us[1]);
+            (unsigned)stats.render_core_max_us[1],
+            (unsigned)(interval_blocks
+                           ? interval_delta_count / interval_blocks : 0),
+            (unsigned)stats.executed_delta_max,
+            (unsigned)(interval_misses
+                           ? interval_missed_delta_count / interval_misses : 0),
+            (unsigned)stats.missed_executed_delta_max);
     esp_load_print_baseline = stats;
 }
 #else

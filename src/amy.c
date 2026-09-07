@@ -979,7 +979,10 @@ bool osc_ref_within_voice(int rel_osc, uint16_t oscs_per_voice, const char *what
 #define EVENT_TO_DELTA_FREQ_COEFS(FIELD, FLAG) \
     EVENT_TO_DELTA_COEFS_COEF0_SPECIAL(FIELD, FLAG, logfreq_of_freq)
 
-static void flush_due_deltas();  // definition next to amy_execute_deltas()
+static uint32_t flush_due_deltas();  // definition next to amy_execute_deltas()
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+uint32_t amy_last_executed_delta_count;
+#endif
 
 // Take the distortion fields out of an event once they have been turned into
 // deltas, so no later pass over the same event can spend them a second time
@@ -1079,7 +1082,7 @@ void amy_event_to_deltas_queue(amy_event *e, uint16_t base_osc, uint16_t oscs_pe
             // Settle pending deltas without running the sequencer tick
             // service - this can execute on any sending thread (see
             // flush_due_deltas).
-            flush_due_deltas();
+            (void)flush_due_deltas();
             patches_load_patch(e);
         }
         // Execute any other commands in this event.
@@ -2646,21 +2649,24 @@ AMY_IRAM_ATTR void amy_render(uint16_t start, uint16_t end, uint8_t core) {
 // service is rendering-context-only (unguarded RMW on next_amy_tick_us, and
 // the external hook expects audio-thread context). Everything here is under
 // the queue lock - safe from any thread.
-static void flush_due_deltas() {
+static uint32_t flush_due_deltas() {
     // check to see which sounds to play
     uint32_t sysclock = amy_sysclock();
     amy_grab_lock();
 
     // find any deltas that need to be played from the (in-order) queue
     struct delta *d = amy_global.delta_queue;
+    uint32_t executed = 0;
     while(d && AMY_TIME_GEQ(sysclock, d->time)) {
         play_delta(d);
         d = delta_release(d);
         amy_global.delta_qsize--;
+        ++executed;
     }
     amy_global.delta_queue = d;
 
     amy_release_lock();
+    return executed;
 }
 
 // this takes scheduled deltas and plays them at the right time
@@ -2671,7 +2677,11 @@ void amy_execute_deltas() {
     sequencer_check_and_fill();
     // Make sure any CV-triggered events are added to delta queue
     update_external_cv_in();
-    flush_due_deltas();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_executed_delta_count = flush_due_deltas();
+#else
+    (void)flush_due_deltas();
+#endif
     AMY_PROFILE_STOP(AMY_EXECUTE_DELTAS)
 
 }

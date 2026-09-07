@@ -308,7 +308,7 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
                                        bool overload_yielded) {
     amy_esp_load_diagnostic_t *stats = &esp_load_diagnostic;
     ++esp_load_diagnostic_seq;
-    __sync_synchronize();
+    amy_memory_fence();
     stats->execute_sum_us += execute_us;
     stats->sequencer_sum_us += amy_last_sequencer_us;
     stats->flush_sum_us += amy_last_flush_us;
@@ -398,7 +398,7 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
         }
     }
     ++stats->blocks;
-    __sync_synchronize();
+    amy_memory_fence();
     ++esp_load_diagnostic_seq;
 }
 
@@ -407,9 +407,9 @@ bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result) {
     for (int attempt = 0; attempt < 8; ++attempt) {
         uint32_t before = esp_load_diagnostic_seq;
         if (before & 1u) continue;
-        __sync_synchronize();
+        amy_memory_fence();
         *result = esp_load_diagnostic;
-        __sync_synchronize();
+        amy_memory_fence();
         if (before == esp_load_diagnostic_seq) return true;
     }
     return false;

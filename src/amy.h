@@ -39,6 +39,14 @@ extern pthread_mutex_t amy_queue_lock;
 #endif
 #endif
 
+static inline void amy_memory_fence(void) {
+#ifdef _WIN32
+    MemoryBarrier();
+#else
+    __sync_synchronize();
+#endif
+}
+
 #ifdef ESP_PLATFORM
 // PRIu8 is normally hu, but the clang we're using doesn't seem to understand it.
 #undef PRIu8

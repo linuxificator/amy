@@ -432,13 +432,13 @@ static void reverb_diagnostic_record(volatile uint32_t *seq,
                                      amy_reverb_diagnostic_t *diagnostic,
                                      uint32_t elapsed_us) {
     ++*seq;
-    __sync_synchronize();
+    amy_memory_fence();
     ++diagnostic->calls;
     diagnostic->total_us += elapsed_us;
     if (elapsed_us > diagnostic->max_us) diagnostic->max_us = elapsed_us;
     if (elapsed_us > AMY_BLOCK_US) ++diagnostic->deadline_misses;
     diagnostic->core_mask |= reverb_current_core_mask();
-    __sync_synchronize();
+    amy_memory_fence();
     ++*seq;
 }
 
@@ -449,9 +449,9 @@ static bool reverb_diagnostic_snapshot(volatile uint32_t *seq,
     for (int attempt = 0; attempt < 8; ++attempt) {
         uint32_t before = *seq;
         if (before & 1u) continue;
-        __sync_synchronize();
+        amy_memory_fence();
         *result = *source;
-        __sync_synchronize();
+        amy_memory_fence();
         if (before == *seq) return true;
     }
     return false;

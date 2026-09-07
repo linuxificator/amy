@@ -68,15 +68,22 @@ static void test_arena_and_wire_routing(void) {
 static void test_audio_and_deferred_diagnostics(void) {
     puts("audio path and stored diagnostics");
     start_shared();
+
+    // Configured storage is cheap while its return level is disabled: it must
+    // not walk the delay lines merely because a room exists.
+    for (int i = 0; i < 2; ++i) amy_simple_fill_buffer();
+    amy_reverb_diagnostic_t room, stage;
+    CHECK(amy_reverb_diagnostics_get(0, &room), "disabled-room snapshot succeeds");
+    CHECK(room.calls == 0, "disabled room performs no DSP work");
+
     amy_add_message("hR0,0.8,0.85,0.5,3000Zy0hS0,1Zv0w0n60l1Z");
     for (int i = 0; i < 48; ++i) amy_simple_fill_buffer();
 
-    amy_reverb_diagnostic_t room, stage;
     CHECK(amy_reverb_diagnostics_get(0, &room), "room snapshot succeeds");
     CHECK(amy_reverb_stage_diagnostics_get(&stage), "stage snapshot succeeds");
     CHECK(room.calls == 48, "room measured once per rendered block (%llu)",
           (unsigned long long)room.calls);
-    CHECK(stage.calls == 48, "stage measured once per rendered block (%llu)",
+    CHECK(stage.calls == 50, "stage measured once per rendered block (%llu)",
           (unsigned long long)stage.calls);
     CHECK(room.core_mask == 1, "host room ran on its one render core");
 

@@ -550,6 +550,10 @@ void amy_process_reverb_room(uint16_t room) {
     if (room >= amy_global.config.max_reverb_rooms) return;
     shared_reverb_state_t *state = &amy_global.reverb_rooms[room];
     if (state->effect.rev == NULL || state->block == NULL) return;
+    // A disabled return cannot contribute to the mix. Avoid walking all of
+    // its delay memory, but keep processing an enabled room through silent
+    // input so an existing tail decays naturally.
+    if (state->effect.level == 0) return;
     uint64_t started = amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
     stereo_reverb_wet(state->effect.rev, state->block,
                       AMY_NCHANS > 1 ? state->block + AMY_BLOCK_SIZE : NULL,

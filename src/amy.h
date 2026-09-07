@@ -1060,6 +1060,8 @@ typedef struct amy_esp_load_diagnostic {
     uint32_t render_max_us;
     uint32_t fill_max_us;
     uint32_t total_max_us;
+    uint32_t total_near_deadline;
+    uint32_t total_deadline_misses;
     uint32_t blocks;
 } amy_esp_load_diagnostic_t;
 

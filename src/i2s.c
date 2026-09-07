@@ -288,6 +288,7 @@ static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
 static amy_esp_load_diagnostic_t esp_load_diagnostic;
 static volatile uint32_t esp_load_diagnostic_seq;
+static amy_esp_load_diagnostic_t esp_load_print_baseline;
 
 static void esp_load_diagnostic_record(uint32_t execute_us,
                                        uint32_t render_us,
@@ -304,6 +305,9 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
     if (render_us > stats->render_max_us) stats->render_max_us = render_us;
     if (fill_us > stats->fill_max_us) stats->fill_max_us = fill_us;
     if (total_us > stats->total_max_us) stats->total_max_us = total_us;
+    if (total_us >= (AMY_BLOCK_US * 9u) / 10u)
+        ++stats->total_near_deadline;
+    if (total_us > AMY_BLOCK_US) ++stats->total_deadline_misses;
     ++stats->blocks;
     __sync_synchronize();
     ++esp_load_diagnostic_seq;
@@ -329,16 +333,46 @@ void amy_esp_load_diagnostics_print(void) {
         return;
     }
     uint32_t blocks = stats.blocks;
+    uint32_t interval_blocks = blocks - esp_load_print_baseline.blocks;
+    uint64_t interval_execute_us =
+        stats.execute_sum_us - esp_load_print_baseline.execute_sum_us;
+    uint64_t interval_render_us =
+        stats.render_sum_us - esp_load_print_baseline.render_sum_us;
+    uint64_t interval_fill_us =
+        stats.fill_sum_us - esp_load_print_baseline.fill_sum_us;
+    uint64_t interval_total_us =
+        stats.total_sum_us - esp_load_print_baseline.total_sum_us;
+    uint32_t interval_near =
+        stats.total_near_deadline - esp_load_print_baseline.total_near_deadline;
+    uint32_t interval_misses =
+        stats.total_deadline_misses
+        - esp_load_print_baseline.total_deadline_misses;
     fprintf(stderr,
             "AMY ESP load: blocks=%u avg_us execute=%u render=%u fill=%u total=%u "
-            "max_us execute=%u render=%u fill=%u total=%u\n",
+            "max_us execute=%u render=%u fill=%u total=%u "
+            "near_deadline=%u deadline_misses=%u "
+            "interval_blocks=%u "
+            "interval_avg_us execute=%u render=%u fill=%u total=%u "
+            "interval_near_deadline=%u interval_deadline_misses=%u\n",
             (unsigned)blocks,
             (unsigned)(stats.execute_sum_us / blocks),
             (unsigned)(stats.render_sum_us / blocks),
             (unsigned)(stats.fill_sum_us / blocks),
             (unsigned)(stats.total_sum_us / blocks),
             (unsigned)stats.execute_max_us, (unsigned)stats.render_max_us,
-            (unsigned)stats.fill_max_us, (unsigned)stats.total_max_us);
+            (unsigned)stats.fill_max_us, (unsigned)stats.total_max_us,
+            (unsigned)stats.total_near_deadline,
+            (unsigned)stats.total_deadline_misses,
+            (unsigned)interval_blocks,
+            (unsigned)(interval_blocks
+                           ? interval_execute_us / interval_blocks : 0),
+            (unsigned)(interval_blocks
+                           ? interval_render_us / interval_blocks : 0),
+            (unsigned)(interval_blocks
+                           ? interval_fill_us / interval_blocks : 0),
+            (unsigned)(interval_blocks ? interval_total_us / interval_blocks : 0),
+            (unsigned)interval_near, (unsigned)interval_misses);
+    esp_load_print_baseline = stats;
 }
 #else
 bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result) {

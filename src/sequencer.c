@@ -418,6 +418,28 @@ void sequencer_debug() {
                     sequences[tag].wire);
         }
     }
+    if (sequence_executions == NULL) return;
+    uint32_t stored_active = 0;
+    for (uint32_t slot = 0; slot < max_stored_sequence_executions; ++slot) {
+        stored_sequence_execution_t *execution = &sequence_executions[slot];
+        if (!execution->occupied) continue;
+        stored_sequence_definition_t *definition = execution->definition;
+        ++stored_active;
+        fprintf(stderr,
+                "stored execution slot %" PRIu32 " tag %" PRIu32
+                " events %" PRIu32 " one_shot %" PRIu32
+                " periodic %u controls %u regular %u start %" PRIu32
+                " elapsed %" PRIu32 "\n",
+                slot, execution->tag, definition->event_count,
+                definition->one_shot_event_count,
+                definition->has_periodic_event ? 1u : 0u,
+                definition->has_control_event ? 1u : 0u,
+                definition->has_regular_event ? 1u : 0u,
+                execution->start_tick,
+                amy_global.sequencer_tick_count - execution->start_tick);
+    }
+    fprintf(stderr, "stored executions active %" PRIu32 "/%" PRIu32 "\n",
+            stored_active, max_stored_sequence_executions);
 }
 
 /* The occupied slots, threaded through the table as an ASCENDING list.

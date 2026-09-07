@@ -16,6 +16,7 @@ def main() -> int:
         max_sequencer_tags=1280,
         max_sequence_events=64,
         max_sequence_executions=40,
+        max_reverb_rooms=2,
     )
 
     before = amy.ticks_ms()
@@ -28,6 +29,8 @@ def main() -> int:
         )
 
     amy.send(osc=0, wave=amy.SINE, freq=440, vel=1)
+    amy.send(reverb_room=[1, 0.35, 0.8, 0.5, 3000])
+    amy.send(bus=0, reverb_send=[1, 0.5])
     peak = 0
     for _ in range(8):
         block = c_amy.render_to_list()
@@ -41,6 +44,20 @@ def main() -> int:
     # engine sizing instead of falling back to the import-time defaults.
     amy.define_sequence(1000, [dict(ticks=(0,), osc=0, vel=0)])
     amy.send(sequence_control=(1000, amy.SEQUENCE_CONTROL_START))
+
+    # CPython validates this runtime allocation dimension before stopping an
+    # already-running engine, just like the other live() sizing arguments.
+    try:
+        c_amy.live(audio=False, max_reverb_rooms=-1)
+    except ValueError as exc:
+        if "max_reverb_rooms" not in str(exc):
+            raise AssertionError(f"unclear shared-reverb validation: {exc}") from exc
+    else:
+        raise AssertionError("negative max_reverb_rooms was accepted")
+
+    # The rejected call above must not have stopped or replaced this engine.
+    if not c_amy.render_to_list():
+        raise AssertionError("rejected live() call stopped the current engine")
     return 0
 
 

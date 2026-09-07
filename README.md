@@ -117,7 +117,8 @@ In Python:
 `amy.live(audio=False, ...)` applies the same runtime configuration without
 starting a system-audio callback. This is intended for deterministic offline
 rendering with `c_amy.render_to_list()`; omitting `audio` retains the existing
-live-audio behavior.
+live-audio behavior. Runtime allocation options such as `max_buses`,
+`max_reverb_rooms`, and the sequencer limits use the same keyword interface.
 
 In C: 
 

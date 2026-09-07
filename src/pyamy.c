@@ -84,6 +84,15 @@ static int parse_live_kwarg(amy_config_t *cfg, const char *key, PyObject *value)
         }
         cfg->max_buses = (uint16_t)lv;
         return 0;
+    } else if (strcmp(key, "max_reverb_rooms") == 0) {
+        lv = PyLong_AsLong(value);
+        if (PyErr_Occurred()) return -1;
+        if (lv < 0 || lv > UINT16_MAX) {
+            PyErr_SetString(PyExc_ValueError, "max_reverb_rooms must be in range [0, 65535]");
+            return -1;
+        }
+        cfg->max_reverb_rooms = (uint16_t)lv;
+        return 0;
     } else if (strcmp(key, "ks_oscs") == 0) {
         lv = PyLong_AsLong(value);
         if (PyErr_Occurred()) return -1;

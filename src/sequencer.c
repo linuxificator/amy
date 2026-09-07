@@ -73,6 +73,7 @@ typedef struct stored_sequence_definition_t {
     uint32_t last_one_shot_tick;
     bool has_periodic_event;
     bool has_control_event;
+    bool has_regular_event;
     uint32_t refs;
     // Zero-reference definitions are linked here by the render path. A
     // non-rendering sequence API call detaches the complete list under the
@@ -227,6 +228,7 @@ static stored_sequence_definition_t *stored_sequence_definition_new(void) {
     definition->last_one_shot_tick = 0;
     definition->has_periodic_event = false;
     definition->has_control_event = false;
+    definition->has_regular_event = false;
     definition->refs = 1;
     definition->next_retired = NULL;
     return definition;
@@ -250,6 +252,7 @@ static stored_sequence_definition_t *stored_sequence_definition_clone(
     copy->last_one_shot_tick = source->last_one_shot_tick;
     copy->has_periodic_event = source->has_periodic_event;
     copy->has_control_event = source->has_control_event;
+    copy->has_regular_event = source->has_regular_event;
     memcpy(copy->one_shot_order, source->one_shot_order,
            source->one_shot_event_count * sizeof(*copy->one_shot_order));
     for (uint32_t i = 0; i < source->event_count; ++i) {
@@ -588,6 +591,8 @@ static void stored_sequence_definition_append_owned(
     event->period = period;
     if (wire[0] == 'H' && wire[1] == 'C')
         definition->has_control_event = true;
+    else
+        definition->has_regular_event = true;
     if (period != 0) {
         definition->has_periodic_event = true;
     } else {
@@ -971,6 +976,13 @@ static bool stored_sequence_process_slot(uint32_t slot, uint32_t tick,
         execution->controls_processed = true;
         execution->controls_processed_tick = tick;
     } else {
+        if (!definition->has_regular_event) {
+            if (!definition->has_periodic_event
+                && elapsed == definition->last_one_shot_tick)
+                stored_sequence_execution_release_deferred(execution);
+            amy_release_lock();
+            return false;
+        }
         if (execution->gate_change_pending
             && AMY_TIME_GEQ(tick, execution->gate_change_tick)) {
             execution->gate_change_pending = false;

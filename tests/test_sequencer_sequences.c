@@ -121,6 +121,26 @@ static void test_repeated_tag_and_one_shot_lifetime(void) {
           "period-zero sequence events fire once and execution retires");
 }
 
+static void test_out_of_order_one_shots_keep_musical_order(void) {
+    printf("finite events use tick order and preserve same-tick append order\n");
+    sequencer_reset();
+    clear_marks();
+    amy_add_message("H4,0,15zPtailZ");
+    amy_add_message("H0,0,15zPheadZ");
+    amy_add_message("H2,0,15zPmiddle-firstZ");
+    amy_add_message("H2,0,15zPmiddle-secondZ");
+    amy_add_message("HC15,1,0Z");
+    uint32_t start = sequencer_ticks() + 1;
+    clock_to(start + 4);
+    CHECK(mark_count == 4, "all four out-of-order events fired once");
+    CHECK(mark_count == 4
+          && !strcmp(marks[0].name, "head")
+          && !strcmp(marks[1].name, "middle-first")
+          && !strcmp(marks[2].name, "middle-second")
+          && !strcmp(marks[3].name, "tail"),
+          "tick order is chronological and same-tick order is stable");
+}
+
 static void test_empty_tick_zero_is_reset_but_payload_is_an_event(void) {
     printf("empty tick-zero reset remains distinct from a tick-zero event\n");
     sequencer_reset();
@@ -655,6 +675,7 @@ int main(void) {
     test_untagged_ticks_and_cumulative_tags();
     test_legacy_c_event_wire_is_unchanged();
     test_repeated_tag_and_one_shot_lifetime();
+    test_out_of_order_one_shots_keep_musical_order();
     test_empty_tick_zero_is_reset_but_payload_is_an_event();
     test_active_definition_is_immutable();
     test_append_while_active_uses_copy_on_write();

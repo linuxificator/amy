@@ -374,7 +374,7 @@ static void stored_sequences_init(uint32_t events, uint32_t executions) {
     if (stored_sequences != NULL)
         memset(stored_sequences, 0, slot_bytes);
     sequence_executions = (stored_sequence_execution_t *)stored_sequence_allocate(
-        execution_bytes, amy_global.config.ram_caps_synth);
+        execution_bytes, amy_global.config.ram_caps_block);
     if (sequence_executions != NULL)
         memset(sequence_executions, 0, execution_bytes);
     occupied_execution_bits = (uint32_t *)stored_sequence_allocate(

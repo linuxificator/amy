@@ -418,6 +418,49 @@ int sprint_event(amy_event *e, char *s, size_t len, bool wirecode) {
     _EPRINT_VALS_5(e->echo_level, e->echo_delay_ms, e->echo_max_delay_ms, e->echo_feedback, e->echo_filter_coef, "echo_{level,delay,max,fb,filt}", "M");
     _EPRINT_VALS_5(e->chorus_level, e->chorus_max_delay, e->chorus_lfo_freq, e->chorus_depth, AMY_UNSET_FLOAT, "chorus_{level,delay,lfo,depth}", "k");
     _EPRINT_VALS_5(e->reverb_level, e->reverb_liveness, e->reverb_damping, e->reverb_xover_hz, AMY_UNSET_FLOAT, "reverb_{level,live,damp,xover}", "h");
+    if (AMY_IS_SET(e->reverb_room)) {
+        if (wirecode) {
+            snprintf(s, len - (size_t)(s - s_entry), "hR%u", e->reverb_room);
+            s += strlen(s);
+#define APPEND_ROOM_FLOAT(FIELD) do {                                    \
+                snprintf(s, len - (size_t)(s - s_entry), ",");          \
+                s += strlen(s);                                          \
+                if (AMY_IS_SET(e->FIELD)) {                              \
+                    snprintfloat3dp(s, len - (size_t)(s - s_entry), e->FIELD); \
+                    s += strlen(s);                                      \
+                }                                                        \
+            } while (0)
+            APPEND_ROOM_FLOAT(reverb_room_level);
+            APPEND_ROOM_FLOAT(reverb_room_liveness);
+            APPEND_ROOM_FLOAT(reverb_room_damping);
+            APPEND_ROOM_FLOAT(reverb_room_xover_hz);
+#undef APPEND_ROOM_FLOAT
+        } else {
+            snprintf(s, len - (size_t)(s - s_entry),
+                     "reverb_room=%u level=%f live=%f damp=%f xover=%f ",
+                     e->reverb_room, e->reverb_room_level,
+                     e->reverb_room_liveness, e->reverb_room_damping,
+                     e->reverb_room_xover_hz);
+            s += strlen(s);
+        }
+    }
+    if (AMY_IS_SET(e->reverb_send_room)) {
+        if (wirecode) {
+            snprintf(s, len - (size_t)(s - s_entry), "hS%u,",
+                     e->reverb_send_room);
+            s += strlen(s);
+            if (AMY_IS_SET(e->reverb_send_level)) {
+                snprintfloat3dp(s, len - (size_t)(s - s_entry),
+                                e->reverb_send_level);
+                s += strlen(s);
+            }
+        } else {
+            snprintf(s, len - (size_t)(s - s_entry),
+                     "reverb_send=%u,%f ", e->reverb_send_room,
+                     e->reverb_send_level);
+            s += strlen(s);
+        }
+    }
 
     if (wirecode && (s - s_entry) > 0) { snprintf(s, len - (size_t)(s - s_entry), "Z"); s += strlen(s); }
 
@@ -459,6 +502,8 @@ bool event_addresses_bus(amy_event *e) {
     _RET_TRUE_IF_5_F_SET(echo_level, echo_delay_ms, echo_max_delay_ms, echo_feedback, echo_filter_coef);
     _RET_TRUE_IF_5_F_SET(chorus_level, chorus_max_delay, chorus_lfo_freq, chorus_depth, chorus_depth);
     _RET_TRUE_IF_5_F_SET(reverb_level, reverb_liveness, reverb_damping, reverb_xover_hz, reverb_xover_hz);
+    _RET_TRUE_IF_SET(reverb_send_room);
+    _RET_TRUE_IF_SET(reverb_send_level);
     // Distortion addresses a bus only when the event names no osc; naming one
     // makes the same fields osc-scope (see event_addresses_oscs).
     // Not _RET_TRUE_IF_5_F_SET: the int fields' unset sentinels cast to
@@ -635,6 +680,12 @@ struct delta *deltas_to_event(struct delta *queue, struct amy_event *event) {
       _CASE_F(reverb_liveness, REVERB_LIVENESS)
       _CASE_F(reverb_damping, REVERB_DAMPING)
       _CASE_F(reverb_xover_hz, REVERB_XOVER_HZ)
+      case REVERB_ROOM_LEVEL: event->reverb_room = queue->osc; AMY_UNSET(event->osc); event->reverb_room_level = queue->data.f; break;
+      case REVERB_ROOM_LIVENESS: event->reverb_room = queue->osc; AMY_UNSET(event->osc); event->reverb_room_liveness = queue->data.f; break;
+      case REVERB_ROOM_DAMPING: event->reverb_room = queue->osc; AMY_UNSET(event->osc); event->reverb_room_damping = queue->data.f; break;
+      case REVERB_ROOM_XOVER_HZ: event->reverb_room = queue->osc; AMY_UNSET(event->osc); event->reverb_room_xover_hz = queue->data.f; break;
+      case REVERB_SEND_ROOM: event->bus = queue->osc; AMY_UNSET(event->osc); event->reverb_send_room = queue->data.i; break;
+      case REVERB_SEND_LEVEL: event->bus = queue->osc; AMY_UNSET(event->osc); event->reverb_send_level = queue->data.f; break;
       // Bus distortion comes back through the same event fields the per-osc
       // stage uses; the event's own osc says which scope it will be read at
       // on the way back in, exactly as it does for VOLUME below.
@@ -847,6 +898,11 @@ void set_event_for_bus_fx(amy_event *event, uint16_t bus, global_state_t *state)
     event->reverb_liveness = state->bus[bus]->reverb.liveness;
     event->reverb_damping = state->bus[bus]->reverb.damping;
     event->reverb_xover_hz = state->bus[bus]->reverb.xover_hz;
+    if (state->bus[bus]->reverb_send_room != AMY_REVERB_ROOM_NONE) {
+        event->reverb_send_room = state->bus[bus]->reverb_send_room;
+        event->reverb_send_level =
+            S2F(state->bus[bus]->reverb_send_level);
+    }
     // Chorus
     event->chorus_level = S2F(state->bus[bus]->chorus.level);
     event->chorus_max_delay = state->bus[bus]->chorus.max_delay;
@@ -872,6 +928,15 @@ void set_event_for_bus_fx(amy_event *event, uint16_t bus, global_state_t *state)
         event->dist_drive_coefs[COEF_CONST] = state->bus[bus]->dist.drive;
         event->dist_mix_coefs[COEF_CONST] = state->bus[bus]->dist.mix;
     }
+}
+
+static void set_event_for_reverb_room(amy_event *event, uint16_t room,
+                                      global_state_t *state) {
+    event->reverb_room = room;
+    event->reverb_room_level = S2F(state->reverb_rooms[room].effect.level);
+    event->reverb_room_liveness = state->reverb_rooms[room].effect.liveness;
+    event->reverb_room_damping = state->reverb_rooms[room].effect.damping;
+    event->reverb_room_xover_hz = state->reverb_rooms[room].effect.xover_hz;
 }
 
 
@@ -975,15 +1040,24 @@ void *yield_synth_commands(uint8_t instr_num, char *s, size_t len, bool include_
 
 
 void *yield_bus_commands(char *s, size_t len, void *state) {
-    // Like yield_synth_commands, returns just the commands for the FX
+    // Like yield_synth_commands, returns bus FX followed by shared room
+    // configuration so a state dump can restore the complete mix graph.
     int state_val = (intptr_t)state;
-    if (state_val > amy_global.highest_bus) {
+    int bus_count = amy_global.highest_bus + 1;
+    int end = bus_count + amy_global.config.max_reverb_rooms;
+    if (state_val >= end) {
         state_val = 0;
-    } else {
+    } else if (state_val < bus_count) {
         // Return a wire command to set up a bus.
         uint16_t bus = state_val;
         amy_event e = amy_default_event();
         set_event_for_bus_fx(&e, bus, &amy_global);
+        sprint_event(&e, s, len, /* wirecode= */ true);
+        ++state_val;
+    } else {
+        uint16_t room = state_val - bus_count;
+        amy_event e = amy_default_event();
+        set_event_for_reverb_room(&e, room, &amy_global);
         sprint_event(&e, s, len, /* wirecode= */ true);
         ++state_val;
     }

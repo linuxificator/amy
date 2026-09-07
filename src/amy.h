@@ -149,6 +149,10 @@ extern void amy_set_gamma9001_pcm(const int16_t * data);
 #define AMY_DEFAULT_NUM_BUSES 4
 #define AMY_DEFAULT_BUS 0
 
+// Shared reverbs are optional aux-send rooms.  With max_reverb_rooms == 0,
+// AMY retains its historical inline per-bus reverb behavior exactly.
+#define AMY_REVERB_ROOM_NONE UINT16_MAX
+
 // How many external CV inputs to contemplate.
 #define AMY_MAX_CV_IN 2
 
@@ -489,6 +493,12 @@ enum params{
     REVERB_LIVENESS,
     REVERB_DAMPING,
     REVERB_XOVER_HZ,
+    REVERB_ROOM_LEVEL,
+    REVERB_ROOM_LIVENESS,
+    REVERB_ROOM_DAMPING,
+    REVERB_ROOM_XOVER_HZ,
+    REVERB_SEND_ROOM,
+    REVERB_SEND_LEVEL,
     // Per-bus distortion stage; bus in delta.osc like the params above.
     // Same per-stage enables as the per-osc stage, and the same event fields
     // feed both - which of the two an event reaches is its own scope, but the
@@ -710,6 +720,16 @@ typedef struct amy_event {
     float reverb_liveness;
     float reverb_damping;
     float reverb_xover_hz;
+    // hRroom,level,liveness,damping,xover configures a shared room.
+    uint16_t reverb_room;
+    float reverb_room_level;
+    float reverb_room_liveness;
+    float reverb_room_damping;
+    float reverb_room_xover_hz;
+    // yBUS hSroom,level sends one bus to one shared room. A zero level is
+    // the explicit off state and does not disturb the room's existing tail.
+    uint16_t reverb_send_room;
+    float reverb_send_level;
 } amy_event;
 
 // Distortion stage.  Split from synthinfo so the same shaper can run at any
@@ -983,6 +1003,17 @@ typedef struct  {
     uint32_t max_sequence_events;
     uint32_t max_sequence_executions;
 
+    // Optional shared reverb rooms. reverb_room_memory may point to
+    // max_reverb_rooms caller-owned arenas, each reverb_room_memory_bytes
+    // long. A NULL entry falls back to AMY's configured heaps. Supplying
+    // fixed arenas lets an embedded host reserve isolated SRAM banks.
+    uint16_t max_reverb_rooms;
+    void **reverb_room_memory;
+    size_t reverb_room_memory_bytes;
+    // Collect lock-free timing counters for later readout. Disabled by
+    // default so production builds pay no timer-read cost in the audio path.
+    uint8_t reverb_diagnostics;
+
 } amy_config_t;
 
 typedef struct eq_state {
@@ -998,6 +1029,10 @@ typedef struct reverb_params {
     SAMPLE lpfcoef;
     SAMPLE lpfgain;
     SAMPLE liveness;
+    // Heap-backed bus reverbs own both this object and their delay lines.
+    // Shared rooms may instead live entirely inside a caller-supplied arena.
+    uint8_t heap_owned;
+    uint8_t delay_lines_heap_owned;
 } reverb_params_t;
 
 typedef struct reverb_state {
@@ -1007,6 +1042,27 @@ typedef struct reverb_state {
     float xover_hz;
     reverb_params_t *rev;
 } reverb_state_t;
+
+typedef struct amy_reverb_diagnostic {
+    uint64_t calls;
+    uint64_t total_us;
+    uint32_t max_us;
+    uint32_t deadline_misses;
+    uint32_t core_mask;
+} amy_reverb_diagnostic_t;
+
+typedef struct shared_reverb_state {
+    reverb_state_t effect;
+    SAMPLE *block;  // non-interleaved stereo send accumulator / wet return
+    void *arena;
+    size_t arena_bytes;
+    size_t arena_used;
+    uint8_t block_heap_owned;
+    // One realtime writer updates these counters; a low-priority reader uses
+    // diagnostic_seq as a sequence lock and never blocks the audio task.
+    volatile uint32_t diagnostic_seq;
+    amy_reverb_diagnostic_t diagnostic;
+} shared_reverb_state_t;
 
 typedef struct chorus_config {
     SAMPLE level;     // How much of the delayed signal to mix in to the output, typ F2S(0.5).
@@ -1032,6 +1088,8 @@ typedef struct bus_state {
     // State of fixed dc-blocking HPF
     eq_state_t eq;
     reverb_state_t reverb;
+    uint16_t reverb_send_room;
+    SAMPLE reverb_send_level;
     chorus_config_t chorus;
     echo_config_t echo;
     // Distortion, first in the bus FX chain; per-channel state per
@@ -1083,6 +1141,10 @@ typedef struct global_state {
 
     // Per-bus output gain, recomputed each block from volume[]; max_buses entries.
     SAMPLE *volume_scale;
+
+    // Optional shared aux-return reverbs. Each room owns exactly one delay
+    // network and one block workspace, regardless of how many buses send it.
+    shared_reverb_state_t *reverb_rooms;
 
     // Smoothed microseconds per render execution.
     uint32_t render_us;
@@ -1157,6 +1219,18 @@ void amy_oom(const char *fmt, ...);
 // Returns the bus, or AMY_DEFAULT_BUS (with a complaint) if it's out of range.
 uint16_t amy_validate_bus(int bus);
 void config_reverb(uint16_t bus, float level, float liveness, float damping, float xover_hz);
+void config_reverb_room(uint16_t room, float level, float liveness,
+                        float damping, float xover_hz);
+void config_reverb_send(uint16_t bus, uint16_t room, float level);
+void amy_process_reverb_room(uint16_t room);
+void amy_process_reverb_rooms(void);
+#ifdef ESP_PLATFORM
+void amy_platform_process_reverb_rooms(void);
+#endif
+bool amy_reverb_diagnostics_get(uint16_t room,
+                                amy_reverb_diagnostic_t *result);
+bool amy_reverb_stage_diagnostics_get(amy_reverb_diagnostic_t *result);
+void amy_reverb_diagnostics_print(void);
 void config_chorus(uint16_t bus, float level, uint16_t max_delay, float lfo_freq, float depth);
 void config_echo(uint16_t bus, float level, float delay_ms, float max_delay_ms, float feedback, float filter_coef);
 void osc_note_on(uint16_t osc, float initial_freq);

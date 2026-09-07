@@ -9,6 +9,8 @@
 // AMY_DEBUG) the profiler.
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 int64_t amy_get_us() { return esp_timer_get_time(); }
 #elif defined PICO_ON_DEVICE
 #include "pico/time.h"
@@ -410,7 +412,195 @@ void dealloc_reverb_delay_lines(uint16_t bus) {
     if (amy_global.bus[bus]->reverb.rev != NULL) {
         deinit_stereo_reverb(amy_global.bus[bus]->reverb.rev);
         delete_reverb(amy_global.bus[bus]->reverb.rev);
+        amy_global.bus[bus]->reverb.rev = NULL;
     }
+}
+
+static amy_reverb_diagnostic_t reverb_stage_diagnostic;
+static volatile uint32_t reverb_stage_diagnostic_seq;
+
+static uint32_t reverb_current_core_mask(void) {
+#ifdef ESP_PLATFORM
+    int core = xPortGetCoreID();
+    return (core >= 0 && core < 32) ? (1u << core) : 0;
+#else
+    return 1u;
+#endif
+}
+
+static void reverb_diagnostic_record(volatile uint32_t *seq,
+                                     amy_reverb_diagnostic_t *diagnostic,
+                                     uint32_t elapsed_us) {
+    ++*seq;
+    __sync_synchronize();
+    ++diagnostic->calls;
+    diagnostic->total_us += elapsed_us;
+    if (elapsed_us > diagnostic->max_us) diagnostic->max_us = elapsed_us;
+    if (elapsed_us > AMY_BLOCK_US) ++diagnostic->deadline_misses;
+    diagnostic->core_mask |= reverb_current_core_mask();
+    __sync_synchronize();
+    ++*seq;
+}
+
+static bool reverb_diagnostic_snapshot(volatile uint32_t *seq,
+                                       amy_reverb_diagnostic_t *source,
+                                       amy_reverb_diagnostic_t *result) {
+    if (result == NULL) return false;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        uint32_t before = *seq;
+        if (before & 1u) continue;
+        __sync_synchronize();
+        *result = *source;
+        __sync_synchronize();
+        if (before == *seq) return true;
+    }
+    return false;
+}
+
+static bool init_reverb_room(uint16_t room) {
+    shared_reverb_state_t *state = &amy_global.reverb_rooms[room];
+    state->effect.level = 0;
+    state->effect.liveness = REVERB_DEFAULT_LIVENESS;
+    state->effect.damping = REVERB_DEFAULT_DAMPING;
+    state->effect.xover_hz = REVERB_DEFAULT_XOVER_HZ;
+
+    void *arena = NULL;
+    if (amy_global.config.reverb_room_memory != NULL)
+        arena = amy_global.config.reverb_room_memory[room];
+    if (arena != NULL) {
+        state->arena = arena;
+        state->arena_bytes = amy_global.config.reverb_room_memory_bytes;
+        state->effect.rev = new_reverb_in_arena(
+            arena, state->arena_bytes, &state->block, &state->arena_used);
+        if (state->effect.rev == NULL) {
+            fprintf(stderr,
+                    "shared reverb room %u does not fit its %zu-byte arena\n",
+                    room, state->arena_bytes);
+            return false;
+        }
+    } else {
+        state->effect.rev = new_reverb();
+        state->block = (SAMPLE *)malloc_caps(
+            sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS,
+            amy_global.config.ram_caps_block);
+        state->block_heap_owned = 1;
+        if (state->effect.rev == NULL || state->block == NULL
+            || !init_stereo_reverb(state->effect.rev)) {
+            fprintf(stderr, "unable to allocate shared reverb room %u\n", room);
+            return false;
+        }
+        bzero(state->block,
+              sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
+    }
+    config_stereo_reverb(state->effect.rev, state->effect.liveness,
+                         state->effect.xover_hz, state->effect.damping);
+    return true;
+}
+
+static void deinit_reverb_room(shared_reverb_state_t *state) {
+    if (state == NULL) return;
+    if (state->effect.rev != NULL) {
+        deinit_stereo_reverb(state->effect.rev);
+        delete_reverb(state->effect.rev);
+    }
+    if (state->block_heap_owned) free(state->block);
+    *state = (shared_reverb_state_t){0};
+}
+
+void config_reverb_room(uint16_t room, float level, float liveness,
+                        float damping, float xover_hz) {
+    if (room >= amy_global.config.max_reverb_rooms
+        || amy_global.reverb_rooms == NULL) {
+        fprintf(stderr, "shared reverb room %u is not configured (max %u)\n",
+                room, amy_global.config.max_reverb_rooms);
+        return;
+    }
+    reverb_state_t *effect = &amy_global.reverb_rooms[room].effect;
+    if (AMY_IS_UNSET(level)) level = S2F(effect->level);
+    if (AMY_IS_UNSET(liveness)) liveness = effect->liveness;
+    if (AMY_IS_UNSET(damping)) damping = effect->damping;
+    if (AMY_IS_UNSET(xover_hz)) xover_hz = effect->xover_hz;
+    if (!isfinite(level) || level < 0) level = 0;
+    effect->level = F2S(level);
+    effect->liveness = liveness;
+    effect->damping = damping;
+    effect->xover_hz = xover_hz;
+    config_stereo_reverb(effect->rev, liveness, xover_hz, damping);
+}
+
+void config_reverb_send(uint16_t bus, uint16_t room, float level) {
+    bus = amy_validate_bus(bus);
+    if (room >= amy_global.config.max_reverb_rooms
+        || amy_global.reverb_rooms == NULL) {
+        fprintf(stderr, "shared reverb room %u is not configured (max %u)\n",
+                room, amy_global.config.max_reverb_rooms);
+        return;
+    }
+    if (AMY_IS_UNSET(level)) level = S2F(amy_global.bus[bus]->reverb_send_level);
+    if (!isfinite(level)) {
+        fprintf(stderr, "shared reverb send level must be finite\n");
+        return;
+    }
+    if (level < 0) level = 0;
+    amy_global.bus[bus]->reverb_send_room = room;
+    amy_global.bus[bus]->reverb_send_level = F2S(level);
+}
+
+void amy_process_reverb_room(uint16_t room) {
+    if (room >= amy_global.config.max_reverb_rooms) return;
+    shared_reverb_state_t *state = &amy_global.reverb_rooms[room];
+    if (state->effect.rev == NULL || state->block == NULL) return;
+    uint64_t started = amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
+    stereo_reverb_wet(state->effect.rev, state->block,
+                      AMY_NCHANS > 1 ? state->block + AMY_BLOCK_SIZE : NULL,
+                      state->block,
+                      AMY_NCHANS > 1 ? state->block + AMY_BLOCK_SIZE : NULL,
+                      AMY_BLOCK_SIZE, state->effect.level);
+    if (amy_global.config.reverb_diagnostics)
+        reverb_diagnostic_record(&state->diagnostic_seq, &state->diagnostic,
+                                 (uint32_t)(amy_get_us() - started));
+}
+
+void amy_process_reverb_rooms(void) {
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room)
+        amy_process_reverb_room(room);
+}
+
+bool amy_reverb_diagnostics_get(uint16_t room,
+                                amy_reverb_diagnostic_t *result) {
+    if (room >= amy_global.config.max_reverb_rooms
+        || amy_global.reverb_rooms == NULL) return false;
+    return reverb_diagnostic_snapshot(
+        &amy_global.reverb_rooms[room].diagnostic_seq,
+        &amy_global.reverb_rooms[room].diagnostic, result);
+}
+
+bool amy_reverb_stage_diagnostics_get(amy_reverb_diagnostic_t *result) {
+    return reverb_diagnostic_snapshot(&reverb_stage_diagnostic_seq,
+                                      &reverb_stage_diagnostic, result);
+}
+
+void amy_reverb_diagnostics_print(void) {
+    amy_reverb_diagnostic_t diagnostic;
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
+        if (!amy_reverb_diagnostics_get(room, &diagnostic)) continue;
+        fprintf(stderr,
+                "AMY reverb room %u: calls=%" PRIu64 " avg_us=%" PRIu64
+                " max_us=%u deadline_misses=%u core_mask=0x%x arena=%zu/%zu\n",
+                room, diagnostic.calls,
+                diagnostic.calls ? diagnostic.total_us / diagnostic.calls : 0,
+                diagnostic.max_us, diagnostic.deadline_misses,
+                diagnostic.core_mask, amy_global.reverb_rooms[room].arena_used,
+                amy_global.reverb_rooms[room].arena_bytes);
+    }
+    if (amy_reverb_stage_diagnostics_get(&diagnostic))
+        fprintf(stderr,
+                "AMY reverb stage: calls=%" PRIu64 " avg_us=%" PRIu64
+                " max_us=%u deadline_misses=%u core_mask=0x%x\n",
+                diagnostic.calls,
+                diagnostic.calls ? diagnostic.total_us / diagnostic.calls : 0,
+                diagnostic.max_us, diagnostic.deadline_misses,
+                diagnostic.core_mask);
 }
 
 void config_reverb(uint16_t bus, float level, float liveness, float damping, float xover_hz) {
@@ -498,6 +688,8 @@ void bus_reset(uint16_t bus) {
         amy_global.bus[bus]->dist_state[c].hold_count = 0;
         amy_global.bus[bus]->dist_state[c].hpf_yn1 = 0;
     }
+    amy_global.bus[bus]->reverb_send_room = AMY_REVERB_ROOM_NONE;
+    amy_global.bus[bus]->reverb_send_level = 0;
 
     if (AMY_HAS_CHORUS) config_chorus(bus, CHORUS_DEFAULT_LEVEL, CHORUS_DEFAULT_MAX_DELAY, CHORUS_DEFAULT_LFO_FREQ, CHORUS_DEFAULT_MOD_DEPTH);
     if (AMY_HAS_REVERB) config_reverb(bus, REVERB_DEFAULT_LEVEL, REVERB_DEFAULT_LIVENESS, REVERB_DEFAULT_DAMPING, REVERB_DEFAULT_XOVER_HZ);
@@ -536,9 +728,30 @@ int8_t global_init(amy_config_t c) {
                                                     amy_global.config.ram_caps_synth);
     amy_global.bus = (bus_state_t **)malloc_caps(sizeof(bus_state_t *) * amy_global.config.max_buses,
                                                  amy_global.config.ram_caps_synth);
-    if (amy_global.volume == NULL || amy_global.volume_scale == NULL || amy_global.bus == NULL) {
+    amy_global.reverb_rooms = NULL;
+    if (amy_global.config.max_reverb_rooms > 0)
+        amy_global.reverb_rooms = (shared_reverb_state_t *)malloc_caps(
+            sizeof(shared_reverb_state_t) * amy_global.config.max_reverb_rooms,
+            amy_global.config.ram_caps_synth);
+    if (amy_global.volume == NULL || amy_global.volume_scale == NULL
+        || amy_global.bus == NULL
+        || (amy_global.config.max_reverb_rooms > 0
+            && amy_global.reverb_rooms == NULL)) {
         fprintf(stderr, "unable to alloc %d buses\n", amy_global.config.max_buses);
         return -1;
+    }
+    if (amy_global.reverb_rooms != NULL)
+        bzero(amy_global.reverb_rooms,
+              sizeof(shared_reverb_state_t)
+              * amy_global.config.max_reverb_rooms);
+    reverb_stage_diagnostic = (amy_reverb_diagnostic_t){0};
+    reverb_stage_diagnostic_seq = 0;
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
+        if (!init_reverb_room(room)) {
+            for (uint16_t initialized = 0; initialized <= room; ++initialized)
+                deinit_reverb_room(&amy_global.reverb_rooms[initialized]);
+            return -1;
+        }
     }
     for (int bus = 0; bus < amy_global.config.max_buses; ++bus)
         amy_global.volume[bus] = 1.0f;
@@ -584,13 +797,17 @@ int8_t global_init(amy_config_t c) {
 
 void global_deinit(void) {
     for (int bus = 0; bus < amy_global.config.max_buses; ++bus)  filters_deinit(bus);
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room)
+        deinit_reverb_room(&amy_global.reverb_rooms[room]);
     free(amy_global.bus[0]);  // One allocation for every bus_state; bus[i] points into it.
     free(amy_global.bus);
     free(amy_global.volume_scale);
     free(amy_global.volume);
+    free(amy_global.reverb_rooms);
     amy_global.bus = NULL;
     amy_global.volume_scale = NULL;
     amy_global.volume = NULL;
+    amy_global.reverb_rooms = NULL;
 }
 
 // Drive rides a log2 rail, like freq and filter freq.  The wire and the CONST
@@ -784,6 +1001,16 @@ void amy_event_to_deltas_queue(amy_event *e, uint16_t base_osc, uint16_t oscs_pe
     d.time = e->time;
     if(AMY_IS_UNSET(e->time)) { d.time = 0; } 
 
+    // Shared room configuration is global rather than bus- or osc-scoped.
+    // The room id rides delta.osc, matching how bus ids are carried below.
+    if (AMY_IS_SET(e->reverb_room)) {
+        d.osc = e->reverb_room;
+        EVENT_TO_DELTA_F(reverb_room_level, REVERB_ROOM_LEVEL)
+        EVENT_TO_DELTA_F(reverb_room_liveness, REVERB_ROOM_LIVENESS)
+        EVENT_TO_DELTA_F(reverb_room_damping, REVERB_ROOM_DAMPING)
+        EVENT_TO_DELTA_F(reverb_room_xover_hz, REVERB_ROOM_XOVER_HZ)
+    }
+
     // If this is a bus-directed event, use d->osc to store the bus number instead.
     if (event_addresses_bus(e)) {
         // Store the target bus in d.osc.  Either bus is specified, or synth is specified and has a bus, or default.
@@ -809,6 +1036,8 @@ void amy_event_to_deltas_queue(amy_event *e, uint16_t base_osc, uint16_t oscs_pe
         EVENT_TO_DELTA_F(reverb_liveness, REVERB_LIVENESS)
         EVENT_TO_DELTA_F(reverb_damping, REVERB_DAMPING)
         EVENT_TO_DELTA_F(reverb_xover_hz, REVERB_XOVER_HZ)
+        EVENT_TO_DELTA_I(reverb_send_room, REVERB_SEND_ROOM)
+        EVENT_TO_DELTA_F(reverb_send_level, REVERB_SEND_LEVEL)
         // The distortion fields serve both scopes; naming no osc is what
         // puts them at bus scope.  Only the CONST coef of drive and mix
         // reaches a bus - the modulation coefs need per-note sources a bus
@@ -1876,6 +2105,12 @@ void play_delta(struct delta *d) {
     if(d->param == REVERB_LIVENESS) config_reverb(bus, AMY_UNSET_FLOAT, d->data.f, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT);
     if(d->param == REVERB_DAMPING) config_reverb(bus, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, d->data.f, AMY_UNSET_FLOAT);
     if(d->param == REVERB_XOVER_HZ) config_reverb(bus, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, d->data.f);
+    if(d->param == REVERB_ROOM_LEVEL) config_reverb_room(d->osc, d->data.f, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT);
+    if(d->param == REVERB_ROOM_LIVENESS) config_reverb_room(d->osc, AMY_UNSET_FLOAT, d->data.f, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT);
+    if(d->param == REVERB_ROOM_DAMPING) config_reverb_room(d->osc, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, d->data.f, AMY_UNSET_FLOAT);
+    if(d->param == REVERB_ROOM_XOVER_HZ) config_reverb_room(d->osc, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, AMY_UNSET_FLOAT, d->data.f);
+    if(d->param == REVERB_SEND_ROOM) config_reverb_send(bus, d->data.i, AMY_UNSET_FLOAT);
+    if(d->param == REVERB_SEND_LEVEL) config_reverb_send(bus, amy_global.bus[bus]->reverb_send_room, d->data.f);
     // Per-bus distortion: same range rules as the per-osc stage (clamped here
     // so dist_process_bus doesn't range-check per block).
     if(d->param == BUS_DIST_CLIP_EN) {
@@ -2505,6 +2740,11 @@ int16_t * amy_fill_buffer() {
     // Apply global processing only if there is some signal.
     //if (max_val > 0) {      // NO - see #629
         // apply the eq filters if there is some signal and EQ is non-default.
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
+        if (amy_global.reverb_rooms[room].block != NULL)
+            bzero(amy_global.reverb_rooms[room].block,
+                  sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
+    }
     for (int bus=0; bus <= amy_global.highest_bus; ++bus) {
         // Per-bus distortion, first so echo/reverb take clean tails.
         if (amy_global.bus[bus]->dist.stages) {
@@ -2537,6 +2777,18 @@ int16_t * amy_fill_buffer() {
                 }
             }
         }
+        // Shared reverbs are post-fader aux sends. The source bus remains in
+        // the dry mix; only its scaled copy enters the selected room.
+        uint16_t room = amy_global.bus[bus]->reverb_send_room;
+        SAMPLE send = amy_global.bus[bus]->reverb_send_level;
+        if (room < amy_global.config.max_reverb_rooms && send != 0) {
+            SAMPLE gain = MUL8_SS(send,
+                                  MUL4_SS(F2S(0.1f),
+                                          F2S(amy_global.volume[bus])));
+            SAMPLE *room_block = amy_global.reverb_rooms[room].block;
+            for (int16_t i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
+                room_block[i] += MUL8_SS(gain, fbl[0][bus][i]);
+        }
         if(AMY_HAS_REVERB) {
             // apply per-bus reverb.
             if(amy_global.bus[bus]->reverb.level > 0 && amy_global.bus[bus]->reverb.rev != NULL && amy_global.bus[bus]->reverb.rev->delay_1 != NULL) {
@@ -2566,6 +2818,20 @@ int16_t * amy_fill_buffer() {
         }, bus, fbl[0][bus], AMY_BLOCK_SIZE, AMY_NCHANS);
         #endif
     }  // end of per-bus FX
+
+    if (amy_global.config.max_reverb_rooms > 0) {
+        uint64_t reverb_stage_started =
+            amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
+#ifdef ESP_PLATFORM
+        amy_platform_process_reverb_rooms();
+#else
+        amy_process_reverb_rooms();
+#endif
+        if (amy_global.config.reverb_diagnostics)
+            reverb_diagnostic_record(&reverb_stage_diagnostic_seq,
+                                     &reverb_stage_diagnostic,
+                                     (uint32_t)(amy_get_us() - reverb_stage_started));
+    }
     // global volume is supposed to max out at 10, so scale by 0.1.
     SAMPLE *volume_scale = amy_global.volume_scale;  // max_buses long, allocated at start.
     for (int bus = 0; bus <= amy_global.highest_bus; ++bus)
@@ -2577,6 +2843,11 @@ int16_t * amy_fill_buffer() {
             for (int bus = 0; bus <= amy_global.highest_bus; ++bus) {
                 // Convert the mixed sample into the int16 range, applying overall gain.
                 fsample += MUL8_SS(volume_scale[bus], fbl[0][bus][i + c * AMY_BLOCK_SIZE]);
+            }
+            for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
+                SAMPLE *room_block = amy_global.reverb_rooms[room].block;
+                if (room_block != NULL)
+                    fsample += room_block[i + c * AMY_BLOCK_SIZE];
             }
 
             // One-pole high-pass filter to remove large low-frequency excursions from

@@ -278,6 +278,13 @@ TaskHandle_t amy_update_handle = NULL;
 // caller combine the worker's half-written buffer.
 static SemaphoreHandle_t esp_render_done_sem = NULL;
 
+typedef enum {
+    AMY_WORKER_RENDER_OSCS = 0,
+    AMY_WORKER_REVERB_ROOM_0,
+} amy_worker_job_t;
+
+static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
+
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
 typedef struct {
     uint64_t window_started_us;
@@ -332,7 +339,10 @@ static void esp_load_diagnostic_record(uint32_t execute_us,
 void esp_render_task( void * pvParameters) {
     while(1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // from esp_render_on_cores
-        amy_render(0, AMY_OSCS/2, 1);
+        if (amy_worker_job == AMY_WORKER_REVERB_ROOM_0)
+            amy_process_reverb_room(0);
+        else
+            amy_render(0, AMY_OSCS/2, 1);
         // Tell the caller we're done.
         xSemaphoreGive(esp_render_done_sem);  // to esp_render_on_cores
     }
@@ -342,6 +352,7 @@ void esp_render_on_cores() {
     // Call amy_render on all the oscs, using multicore if available.
     if (amy_global.config.platform.multicore) {
         // Tell the other core to start rendering.
+        amy_worker_job = AMY_WORKER_RENDER_OSCS;
         xTaskNotifyGive(amy_render_handle);  // to esp_render_task
         // Render me
         amy_render(AMY_OSCS/2, AMY_OSCS, 0);
@@ -350,6 +361,23 @@ void esp_render_on_cores() {
     } else {
         // We render everything on this core.
         amy_render(0, AMY_OSCS, 0);
+    }
+}
+
+void amy_platform_process_reverb_rooms(void) {
+    uint16_t rooms = amy_global.config.max_reverb_rooms;
+    if (rooms == 0) return;
+    if (rooms >= 2 && amy_global.config.platform.multicore) {
+        // Reuse the already-pinned render worker after oscillator rendering:
+        // room 0 runs on core 0 while the fill task runs room 1 on core 1.
+        amy_worker_job = AMY_WORKER_REVERB_ROOM_0;
+        xTaskNotifyGive(amy_render_handle);
+        amy_process_reverb_room(1);
+        xSemaphoreTake(esp_render_done_sem, portMAX_DELAY);
+        for (uint16_t room = 2; room < rooms; ++room)
+            amy_process_reverb_room(room);
+    } else {
+        amy_process_reverb_rooms();
     }
 }
 

@@ -199,12 +199,15 @@ void apply_fixed_delay(SAMPLE *block, delay_line_t *delay_line, uint32_t delay_s
 
 reverb_params_t *new_reverb() {
     reverb_params_t *rev = malloc_caps(sizeof(reverb_params_t), amy_global.config.ram_caps_synth);
+    if (rev == NULL) return NULL;
     bzero(rev, sizeof(reverb_params_t));
+    rev->heap_owned = 1;
+    rev->delay_lines_heap_owned = 1;
     return rev;
 }
 
 void delete_reverb(reverb_params_t *rev) {
-    if(rev) free(rev);
+    if(rev && rev->heap_owned) free(rev);
 }
 
 void config_stereo_reverb(reverb_params_t *rev, float a_liveness, float crossover_hz, float damping) {
@@ -241,6 +244,7 @@ void config_stereo_reverb(reverb_params_t *rev, float a_liveness, float crossove
 
 
 bool init_stereo_reverb(reverb_params_t *rev) {
+    if (rev == NULL) return false;
     if (rev->delay_1 != NULL)
         return true;  // already initialised
 
@@ -269,18 +273,107 @@ bool init_stereo_reverb(reverb_params_t *rev) {
 }
 
 void deinit_stereo_reverb(reverb_params_t *rev) {
-    if (rev->delay_1 != NULL) {
-        free(rev->delay_1); rev->delay_1 = NULL;
-        free(rev->delay_2); rev->delay_2 = NULL;
-        free(rev->delay_3); rev->delay_3 = NULL;
-        free(rev->delay_4); rev->delay_4 = NULL;
-        free(rev->ref_1); rev->ref_1 = NULL;
-        free(rev->ref_2); rev->ref_2 = NULL;
-        free(rev->ref_3); rev->ref_3 = NULL;
-        free(rev->ref_4); rev->ref_4 = NULL;
-        free(rev->ref_5); rev->ref_5 = NULL;
-        free(rev->ref_6); rev->ref_6 = NULL;
-    }
+    if (rev == NULL) return;
+#define RELEASE_REVERB_LINE(FIELD) do {                                  \
+        if (rev->delay_lines_heap_owned && rev->FIELD != NULL)            \
+            free_delay_line(rev->FIELD);                                  \
+        rev->FIELD = NULL;                                                 \
+    } while (0)
+    RELEASE_REVERB_LINE(delay_1);
+    RELEASE_REVERB_LINE(delay_2);
+    RELEASE_REVERB_LINE(delay_3);
+    RELEASE_REVERB_LINE(delay_4);
+    RELEASE_REVERB_LINE(ref_1);
+    RELEASE_REVERB_LINE(ref_2);
+    RELEASE_REVERB_LINE(ref_3);
+    RELEASE_REVERB_LINE(ref_4);
+    RELEASE_REVERB_LINE(ref_5);
+    RELEASE_REVERB_LINE(ref_6);
+#undef RELEASE_REVERB_LINE
+}
+
+typedef struct {
+    uint8_t *next;
+    uint8_t *end;
+} reverb_arena_cursor_t;
+
+static void *reverb_arena_take(reverb_arena_cursor_t *cursor, size_t bytes,
+                               size_t alignment) {
+    uintptr_t aligned = ((uintptr_t)cursor->next + alignment - 1)
+                      & ~(uintptr_t)(alignment - 1);
+    if (aligned > (uintptr_t)cursor->end
+        || bytes > (size_t)((uintptr_t)cursor->end - aligned)) return NULL;
+    cursor->next = (uint8_t *)(aligned + bytes);
+    return (void *)aligned;
+}
+
+static delay_line_t *reverb_arena_delay_line(reverb_arena_cursor_t *cursor,
+                                              int len, int fixed_delay) {
+    if (is_power_of_two(len) < 0) return NULL;
+    delay_line_t *line = reverb_arena_take(
+        cursor, sizeof(delay_line_t), _Alignof(delay_line_t));
+    SAMPLE *samples = reverb_arena_take(
+        cursor, (size_t)len * sizeof(SAMPLE), _Alignof(SAMPLE));
+    if (line == NULL || samples == NULL) return NULL;
+    *line = (delay_line_t){
+        .samples = samples,
+        .len = len,
+        .log_2_len = is_power_of_two(len),
+        .fixed_delay = fixed_delay,
+        .next_in = 0,
+    };
+    bzero(samples, (size_t)len * sizeof(SAMPLE));
+    return line;
+}
+
+reverb_params_t *new_reverb_in_arena(void *arena, size_t arena_bytes,
+                                     SAMPLE **workspace, size_t *used_bytes) {
+    if (workspace != NULL) *workspace = NULL;
+    if (used_bytes != NULL) *used_bytes = 0;
+    if (arena == NULL || arena_bytes == 0 || workspace == NULL) return NULL;
+
+    reverb_arena_cursor_t cursor = {
+        .next = (uint8_t *)arena,
+        .end = (uint8_t *)arena + arena_bytes,
+    };
+    reverb_params_t *rev = reverb_arena_take(
+        &cursor, sizeof(reverb_params_t), _Alignof(reverb_params_t));
+    if (rev == NULL) return NULL;
+    bzero(rev, sizeof(*rev));
+
+    // Keep the block input/output beside the delay network.  On banked SRAM
+    // targets this guarantees the complete hot working set belongs to the
+    // room's reserved arena rather than the general heap.
+    *workspace = reverb_arena_take(
+        &cursor, sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS,
+        _Alignof(SAMPLE));
+    if (*workspace == NULL) return NULL;
+    bzero(*workspace, sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
+
+#define ARENA_REVERB_LINE(FIELD, LEN, DELAY)                              \
+    do {                                                                  \
+        rev->FIELD = reverb_arena_delay_line(&cursor, (LEN), (DELAY));    \
+        if (rev->FIELD == NULL) return NULL;                              \
+    } while (0)
+    ARENA_REVERB_LINE(delay_1, DELAY_POW2, DELAY1SAMPS);
+    ARENA_REVERB_LINE(delay_2, DELAY_POW2, DELAY2SAMPS);
+    ARENA_REVERB_LINE(delay_3, DELAY_POW2, DELAY3SAMPS);
+    ARENA_REVERB_LINE(delay_4, DELAY_POW2, DELAY4SAMPS);
+    ARENA_REVERB_LINE(ref_1, 4096, REF1SAMPS);
+    ARENA_REVERB_LINE(ref_2, 2048, REF2SAMPS);
+    ARENA_REVERB_LINE(ref_3, 2048, REF3SAMPS);
+    ARENA_REVERB_LINE(ref_4, 1024, REF4SAMPS);
+    ARENA_REVERB_LINE(ref_5, 1024, REF5SAMPS);
+    ARENA_REVERB_LINE(ref_6, 1024, REF6SAMPS);
+#undef ARENA_REVERB_LINE
+
+    rev->heap_owned = 0;
+    rev->delay_lines_heap_owned = 0;
+    config_stereo_reverb(
+        rev, INITIAL_LIVENESS, INITIAL_XOVER_HZ, INITIAL_DAMPING);
+    if (used_bytes != NULL)
+        *used_bytes = (size_t)(cursor.next - (uint8_t *)arena);
+    return rev;
 }
 
 // Cache one delay line's state in locals for the reverb loop, the same way
@@ -308,7 +401,9 @@ void deinit_stereo_reverb(reverb_params_t *rev) {
 #define DL_WRITE(P, val) do { P##_s[P##_n] = (val); P##_n = (P##_n + 1) & P##_m; } while (0)
 #define DL_READ(P)       (P##_s[(P##_n - P##_f) & P##_m])
 
-void stereo_reverb(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in, SAMPLE *r_out, SAMPLE *l_out, int n_samples, SAMPLE level) {
+static void stereo_reverb_core(reverb_params_t *rev, SAMPLE *r_in,
+                               SAMPLE *l_in, SAMPLE *r_out, SAMPLE *l_out,
+                               int n_samples, SAMPLE level, bool include_dry) {
     // Stereo reverb.  *{r,l}_in each point to n_samples input samples.
     // n_samples are written to {r,l}_out.
     // Recreate
@@ -376,12 +471,13 @@ void stereo_reverb(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in, SAMPLE *r_o
         SAMPLE d1 = DL_READ(dl1);
         d1 = LPF(d1, &f1state, lpfcoef, lpfgain, liveness);
         d1 += r_acc;
-        *r_out++ = in_r + MUL8_SS(level, d1);
+        *r_out++ = (include_dry ? in_r : 0) + MUL8_SS(level, d1);
 
         SAMPLE d2 = DL_READ(dl2);
         d2 = LPF(d2, &f2state, lpfcoef, lpfgain, liveness);
         d2 += l_acc;
-        if (l_out != NULL)  *l_out++ = in_l + MUL8_SS(level, d2);
+        if (l_out != NULL)
+            *l_out++ = (include_dry ? in_l : 0) + MUL8_SS(level, d2);
 
         SAMPLE d3 = DL_READ(dl3);
         d3 = LPF(d3, &f3state, lpfcoef, lpfgain, liveness);
@@ -411,4 +507,18 @@ void stereo_reverb(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in, SAMPLE *r_o
     rev->f2state = f2state;
     rev->f3state = f3state;
     rev->f4state = f4state;
+}
+
+void stereo_reverb(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in,
+                   SAMPLE *r_out, SAMPLE *l_out, int n_samples,
+                   SAMPLE level) {
+    stereo_reverb_core(
+        rev, r_in, l_in, r_out, l_out, n_samples, level, true);
+}
+
+void stereo_reverb_wet(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in,
+                       SAMPLE *r_out, SAMPLE *l_out, int n_samples,
+                       SAMPLE level) {
+    stereo_reverb_core(
+        rev, r_in, l_in, r_out, l_out, n_samples, level, false);
 }

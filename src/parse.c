@@ -515,6 +515,48 @@ int amy_parse_dist_layer_message(char *message, amy_event *e) {
     return 1;  // skip the sub-command letter.
 }
 
+// Parser for the reverb family. A numeric payload keeps the historical
+// per-bus h<level,live,damp,xover> command. hR addresses one shared room and
+// hS addresses the send on the event's bus. Keeping these under h makes the
+// wire protocol advertise one coherent effect rather than consuming unrelated
+// top-level letters.
+static int amy_parse_reverb_layer_message(char *message, amy_event *e) {
+    if (message[0] != 'R' && message[0] != 'S') {
+        float values[4];
+        parse_list_float(
+            message, values, 4, AMY_UNSET_VALUE(e->reverb_level));
+        e->reverb_level = values[0];
+        e->reverb_liveness = values[1];
+        e->reverb_damping = values[2];
+        e->reverb_xover_hz = values[3];
+        return 0;
+    }
+
+    char command = *message++;
+    float values[5];
+    parse_list_float(message, values, command == 'R' ? 5 : 2,
+                     AMY_UNSET_FLOAT);
+    if (!isfinite(values[0]) || values[0] < 0.0f
+        || values[0] >= (float)AMY_REVERB_ROOM_NONE
+        || values[0] != floorf(values[0])) {
+        fprintf(stderr, "invalid shared reverb room: expected an integer 0..65534\n");
+        return 1;
+    }
+
+    uint16_t room = (uint16_t)values[0];
+    if (command == 'R') {
+        e->reverb_room = room;
+        e->reverb_room_level = values[1];
+        e->reverb_room_liveness = values[2];
+        e->reverb_room_damping = values[3];
+        e->reverb_room_xover_hz = values[4];
+    } else {
+        e->reverb_send_room = room;
+        e->reverb_send_level = values[1];
+    }
+    return 1;  // skip R/S in the outer scanner
+}
+
 // Parse a sample-load parameter list ('z'/'zS' messages): comma-separated
 // unsigned integers, except the midinote field which may be fractional (e.g.
 // a sample tuned 4 cents sharp of C4 is "60.04"). parse_list_uint32_t cannot
@@ -908,15 +950,10 @@ int amy_parse_message(char * message, amy_event *e) {
             /* g used for Alles for client # */
             // 'H' is the ticks= schedule command, it's caught in amy_add_message before this.
             //case 'H': parse_list_uint32_t(arg, e->ticks, 3, 0); break;
-            case 'h': if (AMY_HAS_REVERB) {
-                float reverb_params[4];
-                parse_list_float(arg, reverb_params, 4, AMY_UNSET_VALUE(e->reverb_level));
-                e->reverb_level = reverb_params[0];
-                e->reverb_liveness = reverb_params[1];
-                e->reverb_damping = reverb_params[2];
-                e->reverb_xover_hz = reverb_params[3];
-            }
-            break;
+            case 'h':
+                if (AMY_HAS_REVERB)
+                    pos += amy_parse_reverb_layer_message(arg, e);
+                break;
             /* i is used by alles for sync index -- but only for sync messages -- ok to use here but test */
             case 'i': pos += amy_parse_synth_layer_message(arg, e); break;  // Skip over second cmd letter, if any, or entire MIDI CC code string.
             case 'I': e->ratio = atoff(arg); break;

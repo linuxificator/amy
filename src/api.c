@@ -51,6 +51,10 @@ amy_config_t amy_default_config() {
     c.max_sequencer_tags = 256;
     c.max_sequence_events = 64;
     c.max_sequence_executions = 32;
+    c.max_reverb_rooms = 0;
+    c.reverb_room_memory = NULL;
+    c.reverb_room_memory_bytes = 0;
+    c.reverb_diagnostics = 0;
     c.max_voices = 64;
     c.max_synths = 64;
     c.max_memory_patches = 32;
@@ -206,6 +210,13 @@ void amy_clear_event(amy_event *e) {
     AMY_UNSET(e->reverb_liveness);
     AMY_UNSET(e->reverb_damping);
     AMY_UNSET(e->reverb_xover_hz);
+    AMY_UNSET(e->reverb_room);
+    AMY_UNSET(e->reverb_room_level);
+    AMY_UNSET(e->reverb_room_liveness);
+    AMY_UNSET(e->reverb_room_damping);
+    AMY_UNSET(e->reverb_room_xover_hz);
+    AMY_UNSET(e->reverb_send_room);
+    AMY_UNSET(e->reverb_send_level);
     AMY_UNSET(e->oscs_per_voice);
 }
 

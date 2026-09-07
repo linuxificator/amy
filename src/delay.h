@@ -14,10 +14,18 @@ void apply_variable_delay(SAMPLE *block, delay_line_t *delay_line, SAMPLE *delay
 void apply_fixed_delay(SAMPLE *block, delay_line_t *delay_line, uint32_t delay_samples, SAMPLE mix_level, SAMPLE feedback, SAMPLE filter_coef);
 
 reverb_params_t *new_reverb();
+// Construct a complete reverb plus its block workspace inside one fixed arena.
+// No allocation from the general heap occurs.  Returns NULL when the arena is
+// too small; used_bytes reports the exact high-water mark on success.
+reverb_params_t *new_reverb_in_arena(void *arena, size_t arena_bytes,
+                                     SAMPLE **workspace, size_t *used_bytes);
 void delete_reverb(reverb_params_t *rev);
 void config_stereo_reverb(reverb_params_t *rev, float a_liveness, float crossover_hz, float damping);
 bool init_stereo_reverb(reverb_params_t *rev);
 void deinit_stereo_reverb(reverb_params_t *rev);
 void stereo_reverb(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in, SAMPLE *r_out, SAMPLE *l_out, int n_samples, SAMPLE level);
+void stereo_reverb_wet(reverb_params_t *rev, SAMPLE *r_in, SAMPLE *l_in,
+                       SAMPLE *r_out, SAMPLE *l_out, int n_samples,
+                       SAMPLE level);
 
 #endif // !_DELAY_H

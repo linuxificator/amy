@@ -203,6 +203,10 @@ amy_start(amy_config);
 | `write_samples_fn` | fn ptr | `NULL` | If provided, `amy_update` will call this with each new block of samples | 
 | `max_oscs` | Int | 180 | How many oscillators to support |
 | `max_buses` | Int | 4 | How many FX buses to support. No compile-time ceiling — every bus-indexed table is allocated from this at `amy_start`. Each bus costs a few KB of mix buffers even when idle, plus whatever its effects allocate once switched on |
+| `max_reverb_rooms` | Int | 0 | Number of optional shared aux-return reverbs. Zero preserves the historical per-bus reverb path. |
+| `reverb_room_memory` | `void **` | `NULL` | Optional array of one caller-owned arena per shared room. A null entry uses AMY's configured heaps. This lets embedded hosts keep each room in a dedicated SRAM bank. |
+| `reverb_room_memory_bytes` | bytes | 0 | Size of every supplied room arena. A 128 KiB arena holds the current stereo reverb network and its block workspace. |
+| `reverb_diagnostics` | `0=off, 1=on` | Off | Store per-room and total-stage timing counters for later retrieval. Nothing is printed in the realtime path. |
 | `max_sequencer_tags` | Int | 256 | Number of reusable sequencer tag identities |
 | `max_sequence_events` | Int | 64 | Maximum ordinary events in one reusable tagged sequence |
 | `max_sequence_executions` | Int | 32 | Maximum active or alignment-pending reusable-sequence executions |
@@ -480,9 +484,38 @@ Default AMY has 4 buses, 0..3.  Set `max_buses` in `amy_config_t` before `amy_st
 | Wire code   | C `amy_event` | Python / JS   | Type-range  | Notes                                 |
 | ------ | -------- | ---------- | ----------  | ------------------------------------- |
 | `h`    | `reverb_level, reverb_liveness, reverb_damping, reverb_xover_hz` | `reverb` | float[,float,float,float] | Reverb parameters -- level, liveness, damping, xover: Level is for output mix;
+| `hR`   | `reverb_room, reverb_room_level, reverb_room_liveness, reverb_room_damping, reverb_room_xover_hz` | `reverb_room` | int,float[,float,float,float] | Configure a shared reverb room: room, return level, liveness, damping and crossover. Shared rooms must first be enabled with `max_reverb_rooms`. |
+| `hS`   | `reverb_send_room, reverb_send_level` | `reverb_send` | int,float | Route the selected bus to a shared room with a weighted post-fader send. A send of zero excludes the bus while retaining its room selection. |
 | `k`    | `chorus_level, chorus_max_delay, chorus_lfo_freq, chorus_depth` | `chorus` | float[,float,float,float] | Chorus parameters -- level, delay, freq, depth: Level is for output mix (0 to turn off); delay is max in samples (320); freq is LFO rate in Hz (0.5); depth is proportion of max delay (0.5). |
 | `M`    | `echo_level, echo_delay_ms, echo_max_delay_ms, echo_feedback, echo_filter_coef` | `echo` | float[,int,int,float,float] | Echo parameters --  level, delay_ms, max_delay_ms, feedback, filter_coef (-1 is HPF, 0 is flat, +1 is LPF). |
 | `x`    | `eq_l, eq_m, eq_h` |`eq` | float,float,float | Equalization in dB low (~800Hz) / med (~2500Hz) / high (~7500Hz) -15 to 15. 0 is off. default 0. |
+
+#### Shared reverb rooms
+
+Per-bus `reverb`/`h` remains the default and is unchanged. A host that needs
+many buses but only a few acoustic spaces can instead enable shared rooms in
+`amy_config_t`. Each room owns one reverb delay network; any number of buses
+can feed it:
+
+```python
+amy.send(reverb_room=[0, 0.6, 0.85, 0.5, 3000])
+amy.send(bus=0, reverb_send=[0, 1.0])
+amy.send(bus=1, reverb_send=[0, 0.35])
+amy.send(bus=2, reverb_send=[0, 0.0])  # dry bus; room selection retained
+```
+
+The equivalent wire messages are `hR0,0.6,0.85,0.5,3000Z`,
+`y0hS0,1Z`, `y1hS0,0.35Z`, and `y2hS0,0Z`. Sends are post-fader: changing a
+bus volume changes both its dry signal and what it contributes to the room.
+The room return is added once to the final mix, so buses sharing a room also
+share its tail and room parameters.
+
+On ESP with multicore rendering, rooms 0 and 1 are processed concurrently on
+the existing two pinned audio/render tasks. Additional rooms are processed
+serially. `amy_reverb_diagnostics_get()` and
+`amy_reverb_stage_diagnostics_get()` take lock-free snapshots of counters
+collected by those tasks; `amy_reverb_diagnostics_print()` is intended to be
+called later from a low-priority control task, never from the audio callback.
 
 Distortion (`GC`/`GF`/`GH`/`GD`/`GM`) runs per bus too, first in the bus FX chain -- before EQ, chorus, echo and reverb.  It has no bus-specific commands: the `G` commands above address a bus whenever the event that carries them names no oscillator.
 

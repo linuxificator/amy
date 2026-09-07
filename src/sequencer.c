@@ -9,6 +9,13 @@
 
 uint32_t sequencer_ticks() { return amy_global.sequencer_tick_count; }
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+uint32_t amy_last_sequence_root_us;
+uint32_t amy_last_sequence_control_us;
+uint32_t amy_last_sequence_event_us;
+uint32_t amy_last_sequence_tick_count;
+#endif
+
 // Sequenced ticks events are stored as the raw wire-message string (with its
 // leading 'H' command stripped) plus the scheduling metadata needed to play
 // it back.  The string is only parsed when the entry comes due.
@@ -977,6 +984,10 @@ static void stored_sequence_process_events(uint32_t tick) {
 }
 
 static void sequencer_process_tick(void) {
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    uint64_t diagnostic_stage_started_us = amy_get_us();
+    ++amy_last_sequence_tick_count;
+#endif
     // External sequence controls take their next-tick snapshot under this same
     // lock, so current-tick versus next-tick activation has one ordering point.
     amy_grab_lock();
@@ -1044,10 +1055,24 @@ static void sequencer_process_tick(void) {
         }
         tag = next;
     }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_sequence_root_us +=
+        (uint32_t)(amy_get_us() - diagnostic_stage_started_us);
+    diagnostic_stage_started_us = amy_get_us();
+#endif
     // Composed controls take effect before ordinary stored-sequence events on
     // the same tick. This lets a parent stop a child without one extra onset.
     stored_sequence_process_controls(tick);
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_sequence_control_us +=
+        (uint32_t)(amy_get_us() - diagnostic_stage_started_us);
+    diagnostic_stage_started_us = amy_get_us();
+#endif
     stored_sequence_process_events(tick);
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_sequence_event_us +=
+        (uint32_t)(amy_get_us() - diagnostic_stage_started_us);
+#endif
     wire_firing = was_firing;
     if(amy_global.config.amy_external_sequencer_hook != NULL) {
         amy_global.config.amy_external_sequencer_hook(tick);
@@ -1127,6 +1152,12 @@ void sequencer_external_clock_disable() {
 // amy_sysclock(), which counts rendered samples, so the sequencer advances on
 // AMY time in any rendering context (live, offline, tests).
 void sequencer_check_and_fill() {
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    amy_last_sequence_root_us = 0;
+    amy_last_sequence_control_us = 0;
+    amy_last_sequence_event_us = 0;
+    amy_last_sequence_tick_count = 0;
+#endif
     if (sequences == NULL) return;  // sequencer_init hasn't run
     if (sequencer_external_clock) return;
     if (wire_firing) return;  // nested via a fired message's own parse

@@ -1055,6 +1055,10 @@ typedef struct amy_esp_load_diagnostic {
     uint64_t execute_sum_us;
     uint64_t sequencer_sum_us;
     uint64_t flush_sum_us;
+    uint64_t sequence_root_sum_us;
+    uint64_t sequence_control_sum_us;
+    uint64_t sequence_event_sum_us;
+    uint64_t sequence_tick_sum;
     uint64_t render_sum_us;
     uint64_t render_core_sum_us[2];
     uint64_t audible_osc_sum[2];
@@ -1063,6 +1067,10 @@ typedef struct amy_esp_load_diagnostic {
     uint32_t execute_max_us;
     uint32_t sequencer_max_us;
     uint32_t flush_max_us;
+    uint32_t sequence_root_max_us;
+    uint32_t sequence_control_max_us;
+    uint32_t sequence_event_max_us;
+    uint32_t sequence_tick_max;
     uint32_t render_max_us;
     uint32_t render_core_max_us[2];
     uint32_t audible_osc_max[2];
@@ -1073,6 +1081,10 @@ typedef struct amy_esp_load_diagnostic {
     uint64_t missed_execute_sum_us;
     uint64_t missed_sequencer_sum_us;
     uint64_t missed_flush_sum_us;
+    uint64_t missed_sequence_root_sum_us;
+    uint64_t missed_sequence_control_sum_us;
+    uint64_t missed_sequence_event_sum_us;
+    uint64_t missed_sequence_tick_sum;
     uint64_t missed_render_sum_us;
     uint64_t missed_fill_sum_us;
     uint64_t missed_total_sum_us;
@@ -1081,6 +1093,10 @@ typedef struct amy_esp_load_diagnostic {
     uint32_t missed_execute_max_us;
     uint32_t missed_sequencer_max_us;
     uint32_t missed_flush_max_us;
+    uint32_t missed_sequence_root_max_us;
+    uint32_t missed_sequence_control_max_us;
+    uint32_t missed_sequence_event_max_us;
+    uint32_t missed_sequence_tick_max;
     uint32_t missed_render_max_us;
     uint32_t missed_fill_max_us;
     uint32_t executed_delta_max;

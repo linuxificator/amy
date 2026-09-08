@@ -33,6 +33,10 @@ def main() -> None:
             "runtime oscillator configuration")
     require(r"config\.max_buses\s*=\s*kIntegrationMaxBuses\s*;", engine,
             "runtime bus configuration")
+    require(r"kIntegrationMaxReverbRooms\s*=\s*2\s*;", engine,
+            "the two shared aux returns")
+    require(r"config\.max_reverb_rooms\s*=\s*kIntegrationMaxReverbRooms\s*;",
+            engine, "runtime shared aux-return configuration")
     require(r"kIntegrationMaxSequencerTags\s*=\s*1280\s*;", engine,
             "the shared live-event and stored-sequence tag capacity")
     require(r"config\.max_sequencer_tags\s*=\s*kIntegrationMaxSequencerTags\s*;",

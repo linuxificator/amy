@@ -58,6 +58,7 @@ constexpr int kAudioReadyTimeoutMs = 2000;
 constexpr int kAudioReadyPollMs = 2;
 constexpr uint16_t kIntegrationMaxOscillators = 336;
 constexpr uint16_t kIntegrationMaxBuses = 11;
+constexpr uint16_t kIntegrationMaxReverbRooms = 2;
 constexpr uint32_t kIntegrationMaxSequencerTags = 1280;
 constexpr uint32_t kIntegrationMaxSequenceEvents = 64;
 constexpr uint32_t kIntegrationMaxSequenceExecutions = 40;
@@ -81,6 +82,7 @@ public:
          */
         config.max_oscs = kIntegrationMaxOscillators;
         config.max_buses = kIntegrationMaxBuses;
+        config.max_reverb_rooms = kIntegrationMaxReverbRooms;
         config.max_sequencer_tags = kIntegrationMaxSequencerTags;
         config.max_sequence_events = kIntegrationMaxSequenceEvents;
         config.max_sequence_executions = kIntegrationMaxSequenceExecutions;

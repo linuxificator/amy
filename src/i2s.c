@@ -627,6 +627,7 @@ void amy_esp_load_diagnostics_print(void) {
             (unsigned)stats.missed_sequence_event_max_us,
             (unsigned)stats.missed_sequence_tick_max);
     esp_load_print_baseline = stats;
+    amy_fill_stage_diagnostics_print();
 }
 #else
 bool amy_esp_load_diagnostics_get(amy_esp_load_diagnostic_t *result) {

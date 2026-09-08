@@ -582,6 +582,9 @@ extern int64_t amy_get_us();
 
 extern void amy_profiles_init();
 extern void amy_profiles_print();
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+extern void amy_fill_stage_diagnostics_print(void);
+#endif
 
 ///////////////////////////////////////
 // Default values setup

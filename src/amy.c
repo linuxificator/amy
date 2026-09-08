@@ -985,6 +985,96 @@ uint32_t amy_last_executed_delta_count;
 uint32_t amy_last_sequencer_us;
 uint32_t amy_last_flush_us;
 uint16_t amy_last_audible_osc_count[2];
+
+typedef struct amy_fill_stage_diagnostic {
+    uint64_t prefix_sum_us;
+    uint64_t merge_sum_us;
+    uint64_t buses_sum_us;
+    uint64_t reverb_sum_us;
+    uint64_t output_sum_us;
+    uint64_t bookkeeping_sum_us;
+    uint64_t total_sum_us;
+    uint32_t prefix_max_us;
+    uint32_t merge_max_us;
+    uint32_t buses_max_us;
+    uint32_t reverb_max_us;
+    uint32_t output_max_us;
+    uint32_t bookkeeping_max_us;
+    uint32_t total_max_us;
+    uint32_t calls;
+} amy_fill_stage_diagnostic_t;
+
+static amy_fill_stage_diagnostic_t fill_stage_diagnostic;
+static amy_fill_stage_diagnostic_t fill_stage_print_baseline;
+static volatile uint32_t fill_stage_diagnostic_seq;
+
+static void fill_stage_diagnostic_record(uint32_t prefix_us,
+                                         uint32_t merge_us,
+                                         uint32_t buses_us,
+                                         uint32_t reverb_us,
+                                         uint32_t output_us,
+                                         uint32_t bookkeeping_us,
+                                         uint32_t total_us) {
+    amy_fill_stage_diagnostic_t *stats = &fill_stage_diagnostic;
+#define RECORD_FILL_STAGE(NAME, VALUE) do { \
+        stats->NAME##_sum_us += (VALUE); \
+        if ((VALUE) > stats->NAME##_max_us) stats->NAME##_max_us = (VALUE); \
+    } while (0)
+    ++fill_stage_diagnostic_seq;
+    amy_memory_fence();
+    RECORD_FILL_STAGE(prefix, prefix_us);
+    RECORD_FILL_STAGE(merge, merge_us);
+    RECORD_FILL_STAGE(buses, buses_us);
+    RECORD_FILL_STAGE(reverb, reverb_us);
+    RECORD_FILL_STAGE(output, output_us);
+    RECORD_FILL_STAGE(bookkeeping, bookkeeping_us);
+    RECORD_FILL_STAGE(total, total_us);
+    ++stats->calls;
+    amy_memory_fence();
+    ++fill_stage_diagnostic_seq;
+#undef RECORD_FILL_STAGE
+}
+
+static bool fill_stage_diagnostic_get(amy_fill_stage_diagnostic_t *result) {
+    if (result == NULL) return false;
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        uint32_t before = fill_stage_diagnostic_seq;
+        if (before & 1u) continue;
+        amy_memory_fence();
+        *result = fill_stage_diagnostic;
+        amy_memory_fence();
+        if (before == fill_stage_diagnostic_seq) return true;
+    }
+    return false;
+}
+
+void amy_fill_stage_diagnostics_print(void) {
+    amy_fill_stage_diagnostic_t stats;
+    if (!fill_stage_diagnostic_get(&stats) || stats.calls == 0) {
+        fprintf(stderr, "AMY ESP fill stages: no samples\n");
+        return;
+    }
+    uint32_t calls = stats.calls - fill_stage_print_baseline.calls;
+#define INTERVAL_AVG(NAME) ((unsigned)(calls ? \
+        (stats.NAME##_sum_us - fill_stage_print_baseline.NAME##_sum_us) / calls : 0))
+    fprintf(stderr,
+            "AMY ESP fill stages: interval_calls=%u "
+            "interval_avg_us prefix=%u merge=%u buses=%u reverb=%u output=%u "
+            "bookkeeping=%u total=%u "
+            "max_us prefix=%u merge=%u buses=%u reverb=%u output=%u "
+            "bookkeeping=%u total=%u\n",
+            (unsigned)calls,
+            INTERVAL_AVG(prefix), INTERVAL_AVG(merge), INTERVAL_AVG(buses),
+            INTERVAL_AVG(reverb), INTERVAL_AVG(output),
+            INTERVAL_AVG(bookkeeping), INTERVAL_AVG(total),
+            (unsigned)stats.prefix_max_us, (unsigned)stats.merge_max_us,
+            (unsigned)stats.buses_max_us, (unsigned)stats.reverb_max_us,
+            (unsigned)stats.output_max_us,
+            (unsigned)stats.bookkeeping_max_us,
+            (unsigned)stats.total_max_us);
+#undef INTERVAL_AVG
+    fill_stage_print_baseline = stats;
+}
 #endif
 
 // Take the distortion fields out of an event once they have been turned into
@@ -2726,6 +2816,15 @@ void amy_block_processed(void) {
 
 int16_t * amy_fill_buffer() {
     AMY_PROFILE_START(AMY_FILL_BUFFER)
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    uint64_t fill_total_started_us = amy_get_us();
+    uint64_t fill_stage_started_us;
+    uint32_t fill_prefix_us;
+    uint32_t fill_merge_us;
+    uint32_t fill_buses_us;
+    uint32_t fill_reverb_us;
+    uint32_t fill_output_us;
+#endif
     // A requested timebase reset lands here, between blocks on the render
     // thread, so it cannot race this thread's own sequencer pacing
     // (sequencer_check_and_fill's read-modify-write of next_amy_tick_us) or
@@ -2766,6 +2865,11 @@ int16_t * amy_fill_buffer() {
     if (output_block == output_block_0)  output_block = output_block_1;
     else output_block = output_block_0;
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_prefix_us = (uint32_t)(amy_get_us() - fill_total_started_us);
+    fill_stage_started_us = amy_get_us();
+#endif
+
     // mix results from both cores.
     //SAMPLE max_val = core_max[0];
     #ifdef AMY_DUALCORE
@@ -2773,6 +2877,10 @@ int16_t * amy_fill_buffer() {
         for (int16_t i=0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)  fbl[0][bus][i] += fbl[1][bus][i];
     //    if (core_max[1] > max_val)  max_val = core_max[1];
     #endif
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_merge_us = (uint32_t)(amy_get_us() - fill_stage_started_us);
+    fill_stage_started_us = amy_get_us();
+#endif
     // Apply global processing only if there is some signal.
     //if (max_val > 0) {      // NO - see #629
         // apply the eq filters if there is some signal and EQ is non-default.
@@ -2855,6 +2963,11 @@ int16_t * amy_fill_buffer() {
         #endif
     }  // end of per-bus FX
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_buses_us = (uint32_t)(amy_get_us() - fill_stage_started_us);
+    fill_stage_started_us = amy_get_us();
+#endif
+
     if (amy_global.config.max_reverb_rooms > 0) {
         uint64_t reverb_stage_started =
             amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
@@ -2868,6 +2981,10 @@ int16_t * amy_fill_buffer() {
                                      &reverb_stage_diagnostic,
                                      (uint32_t)(amy_get_us() - reverb_stage_started));
     }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_reverb_us = (uint32_t)(amy_get_us() - fill_stage_started_us);
+    fill_stage_started_us = amy_get_us();
+#endif
     // global volume is supposed to max out at 10, so scale by 0.1.
     SAMPLE *volume_scale = amy_global.volume_scale;  // max_buses long, allocated at start.
     for (int bus = 0; bus <= amy_global.highest_bus; ++bus)
@@ -2937,6 +3054,11 @@ int16_t * amy_fill_buffer() {
         }
     }
 
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_output_us = (uint32_t)(amy_get_us() - fill_stage_started_us);
+    fill_stage_started_us = amy_get_us();
+#endif
+
     // Handle sampling after block is rendered
     if(amy_global.transfer_flag==AMY_TRANSFER_TYPE_SAMPLE) {
         uint32_t bytes_per_frame = AMY_NCHANS * sizeof(int16_t);
@@ -2963,6 +3085,17 @@ int16_t * amy_fill_buffer() {
     amy_global.time = amy_global.total_samples * (1.0f / AMY_SAMPLE_RATE);
 
     AMY_PROFILE_STOP(AMY_FILL_BUFFER)
+
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    uint32_t fill_bookkeeping_us =
+        (uint32_t)(amy_get_us() - fill_stage_started_us);
+    uint32_t fill_total_us =
+        (uint32_t)(amy_get_us() - fill_total_started_us);
+    fill_stage_diagnostic_record(fill_prefix_us, fill_merge_us,
+                                 fill_buses_us, fill_reverb_us,
+                                 fill_output_us, fill_bookkeeping_us,
+                                 fill_total_us);
+#endif
 
     amy_out_block = output_block;
     return output_block;

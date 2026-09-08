@@ -280,6 +280,7 @@ static SemaphoreHandle_t esp_render_done_sem = NULL;
 
 typedef enum {
     AMY_WORKER_RENDER_OSCS = 0,
+    AMY_WORKER_BUS_SUBSET_0,
     AMY_WORKER_REVERB_ROOM_0,
 } amy_worker_job_t;
 
@@ -644,7 +645,9 @@ void amy_esp_load_diagnostics_print(void) {
 void esp_render_task( void * pvParameters) {
     while(1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);  // from esp_render_on_cores
-        if (amy_worker_job == AMY_WORKER_REVERB_ROOM_0)
+        if (amy_worker_job == AMY_WORKER_BUS_SUBSET_0)
+            amy_process_bus_subset(0, 2);
+        else if (amy_worker_job == AMY_WORKER_REVERB_ROOM_0)
             amy_process_reverb_room(0);
         else {
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
@@ -681,6 +684,20 @@ void esp_render_on_cores() {
     } else {
         // We render everything on this core.
         amy_render(0, AMY_OSCS, 0);
+    }
+}
+
+void amy_platform_process_bus_subsets(void) {
+    if (amy_global.config.platform.multicore) {
+        // Keep every room's complete source subset on one core. This avoids
+        // shared accumulator writes and leaves its room input hot for the
+        // matching reverb job that follows.
+        amy_worker_job = AMY_WORKER_BUS_SUBSET_0;
+        xTaskNotifyGive(amy_render_handle);
+        amy_process_bus_subset(1, 2);
+        xSemaphoreTake(esp_render_done_sem, portMAX_DELAY);
+    } else {
+        amy_process_bus_subset(0, 1);
     }
 }
 

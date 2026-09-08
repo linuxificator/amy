@@ -282,6 +282,7 @@ typedef enum {
     AMY_WORKER_RENDER_OSCS = 0,
     AMY_WORKER_BUS_SUBSET_0,
     AMY_WORKER_REVERB_ROOM_0,
+    AMY_WORKER_BUS_AND_REVERB_SUBSET_0,
 } amy_worker_job_t;
 
 static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
@@ -649,6 +650,10 @@ void esp_render_task( void * pvParameters) {
             amy_process_bus_subset(0, 2);
         else if (amy_worker_job == AMY_WORKER_REVERB_ROOM_0)
             amy_process_reverb_room(0);
+        else if (amy_worker_job == AMY_WORKER_BUS_AND_REVERB_SUBSET_0) {
+            amy_process_bus_subset(0, 2);
+            amy_process_reverb_room(0);
+        }
         else {
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
             uint64_t started = amy_get_us();
@@ -714,6 +719,25 @@ void amy_platform_process_reverb_rooms(void) {
         for (uint16_t room = 2; room < rooms; ++room)
             amy_process_reverb_room(room);
     } else {
+        amy_process_reverb_rooms();
+    }
+}
+
+void amy_platform_process_bus_subsets_and_reverb_rooms(void) {
+    uint16_t rooms = amy_global.config.max_reverb_rooms;
+    if (rooms >= 2 && amy_global.config.platform.multicore) {
+        // Each core owns one complete room path: all bus effects assigned to
+        // that room, their weighted send sum, and the room reverb itself.
+        // There is only one join, after both room paths have completed.
+        amy_worker_job = AMY_WORKER_BUS_AND_REVERB_SUBSET_0;
+        xTaskNotifyGive(amy_render_handle);
+        amy_process_bus_subset(1, 2);
+        amy_process_reverb_room(1);
+        xSemaphoreTake(esp_render_done_sem, portMAX_DELAY);
+        for (uint16_t room = 2; room < rooms; ++room)
+            amy_process_reverb_room(room);
+    } else {
+        amy_process_bus_subset(0, 1);
         amy_process_reverb_rooms();
     }
 }

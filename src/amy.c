@@ -1099,6 +1099,19 @@ void amy_fill_stage_diagnostics_print(void) {
             (unsigned)stats.bus_fx_max_us,
             (unsigned)stats.bus_send_max_us,
             (unsigned)stats.bus_post_max_us);
+    for (uint16_t bus = 0; bus <= amy_global.highest_bus; ++bus) {
+        bus_state_t *state = amy_global.bus[bus];
+        fprintf(stderr,
+                "AMY ESP bus %u: dist=0x%x eq=%.3f,%.3f,%.3f "
+                "chorus=%.3f echo=%.3f legacy_reverb=%.3f "
+                "send_room=%u send=%.3f volume=%.3f\n",
+                (unsigned)bus, (unsigned)state->dist.stages,
+                S2F(state->eq.eq[0]), S2F(state->eq.eq[1]),
+                S2F(state->eq.eq[2]), S2F(state->chorus.level),
+                S2F(state->echo.level), S2F(state->reverb.level),
+                (unsigned)state->reverb_send_room,
+                S2F(state->reverb_send_level), amy_global.volume[bus]);
+    }
 #undef INTERVAL_AVG
     fill_stage_print_baseline = stats;
 }

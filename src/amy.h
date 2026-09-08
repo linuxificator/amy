@@ -80,34 +80,22 @@ extern const uint32_t pcm_wavetable_len;
 
 
 
-// Set block size and SR. The defaults remain 256/44100, except on platforms
-// that require something else. Embedded applications may provide these as
-// compiler definitions instead of carrying a private patch to amy.h.
-#ifndef AMY_BLOCK_SIZE
-#ifdef AMY_DAISY
-#define AMY_BLOCK_SIZE 128
-#else
-#define AMY_BLOCK_SIZE 256
-#endif
-#endif
-
+// Set block size and SR. We try for 256/44100, but some platforms don't let us.
+// The block is a POWER OF TWO -- the per-block amplitude and pan ramps are
+// SHIFTR(delta, BLOCK_SIZE_BITS), not a divide -- so a host chooses it in
+// BITS, at compile time: -DBLOCK_SIZE_BITS=7 is a 128-sample block, 6 is 64.
+// Left alone it is 8 (256 samples), or 7 (128) on Daisy, exactly as before.
 #ifndef BLOCK_SIZE_BITS
-#if AMY_BLOCK_SIZE == 512
-#define BLOCK_SIZE_BITS 9
-#elif AMY_BLOCK_SIZE == 64
-#define BLOCK_SIZE_BITS 6
-#elif AMY_BLOCK_SIZE == 128
+#ifdef AMY_DAISY
 #define BLOCK_SIZE_BITS 7
-#elif AMY_BLOCK_SIZE == 256
-#define BLOCK_SIZE_BITS 8
 #else
-#error "AMY_BLOCK_SIZE must be 64, 128, 256, or 512"
+#define BLOCK_SIZE_BITS 8
 #endif
 #endif
-
-#if (1 << BLOCK_SIZE_BITS) != AMY_BLOCK_SIZE
-#error "BLOCK_SIZE_BITS must be log2(AMY_BLOCK_SIZE)"
+#if BLOCK_SIZE_BITS < 5 || BLOCK_SIZE_BITS > 10
+#error "BLOCK_SIZE_BITS must be 5..10 (a block of 32..1024 samples)"
 #endif
+#define AMY_BLOCK_SIZE (1 << BLOCK_SIZE_BITS)
 
 #ifndef AMY_SAMPLE_RATE
 #if defined(AMY_DAISY) || defined(__EMSCRIPTEN__)

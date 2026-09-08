@@ -728,17 +728,20 @@ int8_t global_init(amy_config_t c) {
     amy_global.delta_qsize = 0;
     // The per-bus tables are sized from max_buses; nothing about a bus is a
     // fixed-width array any more.
+    // Bus control state is read throughout every rendered block. Keep these
+    // small tables with the block-working set rather than with the much larger
+    // synth state, which embedded callers commonly place in external RAM.
     amy_global.volume = (float *)malloc_caps(sizeof(float) * amy_global.config.max_buses,
-                                             amy_global.config.ram_caps_synth);
+                                             amy_global.config.ram_caps_block);
     amy_global.volume_scale = (SAMPLE *)malloc_caps(sizeof(SAMPLE) * amy_global.config.max_buses,
-                                                    amy_global.config.ram_caps_synth);
+                                                    amy_global.config.ram_caps_block);
     amy_global.bus = (bus_state_t **)malloc_caps(sizeof(bus_state_t *) * amy_global.config.max_buses,
-                                                 amy_global.config.ram_caps_synth);
+                                                 amy_global.config.ram_caps_block);
     amy_global.reverb_rooms = NULL;
     if (amy_global.config.max_reverb_rooms > 0)
         amy_global.reverb_rooms = (shared_reverb_state_t *)malloc_caps(
             sizeof(shared_reverb_state_t) * amy_global.config.max_reverb_rooms,
-            amy_global.config.ram_caps_synth);
+            amy_global.config.ram_caps_block);
     if (amy_global.volume == NULL || amy_global.volume_scale == NULL
         || amy_global.bus == NULL
         || (amy_global.config.max_reverb_rooms > 0
@@ -783,7 +786,7 @@ int8_t global_init(amy_config_t c) {
     amy_global.reset_timebase_pending = 0;
 
     struct bus_state *bus_configs = malloc_caps(sizeof(struct bus_state) * amy_global.config.max_buses,
-                                                amy_global.config.ram_caps_synth);
+                                                amy_global.config.ram_caps_block);
     if (bus_configs == NULL) {
         fprintf(stderr, "unable to alloc %d bus states\n", amy_global.config.max_buses);
         return -1;

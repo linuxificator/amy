@@ -177,6 +177,25 @@ static void test_external_aux_return(void) {
           "external effect received the selected bus audio");
 }
 
+static void test_runtime_room_count_is_not_fixed_at_two(void) {
+    puts("runtime return count is not fixed at two");
+    amy_stop();
+    amy_config_t config = amy_default_config();
+    config.features.startup_bleep = 0;
+    config.max_reverb_rooms = 3;
+    config.reverb_diagnostics = 1;
+    amy_start(config);
+    CHECK(amy_global.allocated_reverbs == 3,
+          "three configured built-in returns are allocated");
+    amy_add_message("hR2,0.5,0.8,0.4,3000Zy0hS2,1Zv0w0n60l1y0Z");
+    amy_execute_deltas();
+    amy_simple_fill_buffer();
+    amy_reverb_diagnostic_t room2;
+    CHECK(amy_reverb_diagnostics_get(2, &room2),
+          "third-return diagnostic snapshot succeeds");
+    CHECK(room2.calls == 1, "third return is processed");
+}
+
 static void test_legacy_default(void) {
     puts("legacy per-bus behavior remains the default");
     amy_stop();
@@ -202,6 +221,7 @@ int main(void) {
     test_audio_and_deferred_diagnostics();
     test_external_hook_serial_fallback();
     test_external_aux_return();
+    test_runtime_room_count_is_not_fixed_at_two();
     test_legacy_default();
     amy_stop();
     if (failures) return 1;

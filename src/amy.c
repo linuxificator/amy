@@ -2444,6 +2444,23 @@ void mix_with_pan(SAMPLE *stereo_dest, SAMPLE *mono_src, float pan_start, float 
     AMY_PROFILE_STOP(MIX_WITH_PAN)
 }
 
+// The common bus-routing primitive: scale one non-interleaved block into a
+// destination block.  replace=true starts a mix; false adds another member of
+// the same weighted subset.  Keeping dry mix, aux sends and effect returns on
+// this one path preserves their fixed-point summation semantics and gives
+// targets one kernel to optimize.
+static AMY_IRAM_ATTR void mix_bus_block(SAMPLE *dest, const SAMPLE *source,
+                                        SAMPLE gain, bool replace) {
+    int samples = AMY_BLOCK_SIZE * AMY_NCHANS;
+    if (replace) {
+        for (int i = 0; i < samples; ++i)
+            dest[i] = MUL8_SS(gain, source[i]);
+    } else {
+        for (int i = 0; i < samples; ++i)
+            dest[i] += MUL8_SS(gain, source[i]);
+    }
+}
+
 // Test if the specified osc is in its release phase (i.e., note-off has been received).
 #define OSC_IN_RELEASE(osc)  (AMY_IS_SET(synth[osc]->note_off_clock))
 
@@ -2776,6 +2793,11 @@ int16_t * amy_fill_buffer() {
     // Apply global processing only if there is some signal.
     //if (max_val > 0) {      // NO - see #629
         // apply the eq filters if there is some signal and EQ is non-default.
+    // Global volume is the existing per-bus gain for both the dry summation
+    // and post-fader aux subsets.  Compute it once for this block.
+    SAMPLE *volume_scale = amy_global.volume_scale;
+    for (int bus = 0; bus <= amy_global.highest_bus; ++bus)
+        volume_scale[bus] = MUL4_SS(F2S(0.1f), F2S(amy_global.volume[bus]));
     for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
         if (amy_global.reverb_rooms[room].block != NULL)
             bzero(amy_global.reverb_rooms[room].block,
@@ -2818,12 +2840,9 @@ int16_t * amy_fill_buffer() {
         uint16_t room = amy_global.bus[bus]->reverb_send_room;
         SAMPLE send = amy_global.bus[bus]->reverb_send_level;
         if (room < amy_global.config.max_reverb_rooms && send != 0) {
-            SAMPLE gain = MUL8_SS(send,
-                                  MUL4_SS(F2S(0.1f),
-                                          F2S(amy_global.volume[bus])));
+            SAMPLE gain = MUL8_SS(send, volume_scale[bus]);
             SAMPLE *room_block = amy_global.reverb_rooms[room].block;
-            for (int16_t i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
-                room_block[i] += MUL8_SS(gain, fbl[0][bus][i]);
+            mix_bus_block(room_block, fbl[0][bus], gain, false);
         }
         if(AMY_HAS_REVERB) {
             // apply per-bus reverb.
@@ -2868,23 +2887,21 @@ int16_t * amy_fill_buffer() {
                                      &reverb_stage_diagnostic,
                                      (uint32_t)(amy_get_us() - reverb_stage_started));
     }
-    // global volume is supposed to max out at 10, so scale by 0.1.
-    SAMPLE *volume_scale = amy_global.volume_scale;  // max_buses long, allocated at start.
+    // Reuse bus 0's now-consumed render buffer as the standard AMY master bus.
+    // The dry buses and wet returns are just weighted subsets through the same
+    // kernel; no second application-specific mixer or extra block copy exists.
+    SAMPLE *master_bus = fbl[0][AMY_DEFAULT_BUS];
     for (int bus = 0; bus <= amy_global.highest_bus; ++bus)
-        volume_scale[bus] = MUL4_SS(F2S(0.1f), F2S(amy_global.volume[bus]));
+        mix_bus_block(master_bus, fbl[0][bus], volume_scale[bus], bus == 0);
+    for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
+        SAMPLE *room_block = amy_global.reverb_rooms[room].block;
+        if (room_block != NULL)
+            mix_bus_block(master_bus, room_block, F2S(1.0f), false);
+    }
+
     for(int16_t i=0; i < AMY_BLOCK_SIZE; ++i) {
         for (int16_t c=0; c < AMY_NCHANS; ++c) {
-
-            SAMPLE fsample = 0;
-            for (int bus = 0; bus <= amy_global.highest_bus; ++bus) {
-                // Convert the mixed sample into the int16 range, applying overall gain.
-                fsample += MUL8_SS(volume_scale[bus], fbl[0][bus][i + c * AMY_BLOCK_SIZE]);
-            }
-            for (uint16_t room = 0; room < amy_global.config.max_reverb_rooms; ++room) {
-                SAMPLE *room_block = amy_global.reverb_rooms[room].block;
-                if (room_block != NULL)
-                    fsample += room_block[i + c * AMY_BLOCK_SIZE];
-            }
+            SAMPLE fsample = master_bus[i + c * AMY_BLOCK_SIZE];
 
             // One-pole high-pass filter to remove large low-frequency excursions from
             // some FM patches. b = [1 -1]; a = [1 -0.995]

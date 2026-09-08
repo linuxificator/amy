@@ -2741,6 +2741,104 @@ void amy_block_processed(void) {
 #endif
 }
 
+// Process AMY's existing effect chain for one bus, then add that bus to its
+// configured shared-reverb input. Buses are independent up to this point, so
+// a platform may divide complete subsets over render cores without changing
+// the DSP or routing model.
+static AMY_IRAM_ATTR void amy_process_bus_builtin(uint16_t bus) {
+    if (amy_global.bus[bus]->dist.stages)
+        dist_process_bus(bus, fbl[0][bus]);
+
+    if (amy_global.bus[bus]->eq.eq[0] != F2S(1.0f)
+        || amy_global.bus[bus]->eq.eq[1] != F2S(1.0f)
+        || amy_global.bus[bus]->eq.eq[2] != F2S(1.0f))
+        parametric_eq_process(bus, fbl[0][bus]);
+
+    if (AMY_HAS_CHORUS
+        && amy_global.bus[bus]->chorus.level > 0
+        && amy_global.bus[bus]->chorus.chorus_delay_lines[0] != NULL) {
+        SAMPLE scale = F2S(1.0f);
+        for (int16_t c = 0; c < AMY_NCHANS; ++c) {
+            apply_variable_delay(
+                fbl[0][bus] + c * AMY_BLOCK_SIZE,
+                amy_global.bus[bus]->chorus.chorus_delay_lines[c],
+                amy_global.bus[bus]->chorus.delay_mod, scale,
+                amy_global.bus[bus]->chorus.level, 0);
+            scale = -scale;
+        }
+    }
+
+    if (AMY_HAS_ECHO
+        && amy_global.bus[bus]->echo.level > 0
+        && amy_global.bus[bus]->echo.echo_delay_lines[0] != NULL) {
+        for (int16_t c = 0; c < AMY_NCHANS; ++c)
+            apply_fixed_delay(
+                fbl[0][bus] + c * AMY_BLOCK_SIZE,
+                amy_global.bus[bus]->echo.echo_delay_lines[c],
+                amy_global.bus[bus]->echo.delay_samples,
+                amy_global.bus[bus]->echo.level,
+                amy_global.bus[bus]->echo.feedback,
+                amy_global.bus[bus]->echo.filter_coef);
+    }
+
+    uint16_t room = amy_global.bus[bus]->reverb_send_room;
+    SAMPLE send = amy_global.bus[bus]->reverb_send_level;
+    if (room < amy_global.config.max_reverb_rooms && send != 0) {
+        SAMPLE gain = MUL8_SS(send, amy_global.volume_scale[bus]);
+        mix_bus_block(amy_global.reverb_rooms[room].block,
+                      fbl[0][bus], gain, false);
+    }
+
+    if (AMY_HAS_REVERB
+        && amy_global.bus[bus]->reverb.level > 0
+        && amy_global.bus[bus]->reverb.rev != NULL
+        && amy_global.bus[bus]->reverb.rev->delay_1 != NULL) {
+        if (AMY_NCHANS == 1) {
+            stereo_reverb(amy_global.bus[bus]->reverb.rev,
+                          fbl[0][bus], NULL, fbl[0][bus], NULL,
+                          AMY_BLOCK_SIZE,
+                          amy_global.bus[bus]->reverb.level);
+        } else {
+            stereo_reverb(amy_global.bus[bus]->reverb.rev,
+                          fbl[0][bus], fbl[0][bus] + AMY_BLOCK_SIZE,
+                          fbl[0][bus], fbl[0][bus] + AMY_BLOCK_SIZE,
+                          AMY_BLOCK_SIZE,
+                          amy_global.bus[bus]->reverb.level);
+        }
+    }
+}
+
+static uint8_t amy_bus_partition(uint16_t bus, uint8_t partitions) {
+    uint16_t room = amy_global.bus[bus]->reverb_send_room;
+    if (room < amy_global.config.max_reverb_rooms)
+        return (uint8_t)(room % partitions);
+    return (uint8_t)(bus % partitions);
+}
+
+void AMY_IRAM_ATTR amy_process_bus_subset(uint8_t partition,
+                                          uint8_t partitions) {
+    if (partitions == 0 || partitions > AMY_MAX_CORES
+        || partition >= partitions) return;
+    for (uint16_t bus = 0; bus <= amy_global.highest_bus; ++bus) {
+        if (amy_bus_partition(bus, partitions) == partition)
+            amy_process_bus_builtin(bus);
+    }
+}
+
+static void amy_process_bus_post_hook(uint16_t bus) {
+    if (amy_global.config.amy_external_bus_postprocess_hook != NULL)
+        amy_global.config.amy_external_bus_postprocess_hook(
+            bus, fbl[0][bus], AMY_BLOCK_SIZE);
+#ifdef __EMSCRIPTEN__
+    EM_ASM({
+        if (typeof amy_bus_postprocess_js_hook === 'function') {
+            if (!Module.wasmMemory) Module.wasmMemory = wasmMemory;
+            amy_bus_postprocess_js_hook($0, $1, $2, $3, Module);
+        }
+    }, bus, fbl[0][bus], AMY_BLOCK_SIZE, AMY_NCHANS);
+#endif
+}
+
 int16_t * amy_fill_buffer() {
     AMY_PROFILE_START(AMY_FILL_BUFFER)
     // A requested timebase reset lands here, between blocks on the render
@@ -2803,76 +2901,24 @@ int16_t * amy_fill_buffer() {
             bzero(amy_global.reverb_rooms[room].block,
                   sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
     }
-    for (int bus=0; bus <= amy_global.highest_bus; ++bus) {
-        // Per-bus distortion, first so echo/reverb take clean tails.
-        if (amy_global.bus[bus]->dist.stages) {
-            dist_process_bus(bus, fbl[0][bus]);
+    bool serial_bus_hooks =
+        amy_global.config.amy_external_bus_postprocess_hook != NULL;
+#ifdef __EMSCRIPTEN__
+    // A JS hook can only be discovered inside the worklet call itself.
+    serial_bus_hooks = true;
+#endif
+    if (!serial_bus_hooks) {
+#ifdef ESP_PLATFORM
+        amy_platform_process_bus_subsets();
+#else
+        amy_process_bus_subset(0, 1);
+#endif
+    } else {
+        for (int bus = 0; bus <= amy_global.highest_bus; ++bus) {
+            amy_process_bus_builtin(bus);
+            amy_process_bus_post_hook(bus);
         }
-        // Per-bus EQ
-        if (amy_global.bus[bus]->eq.eq[0] != F2S(1.0f) || amy_global.bus[bus]->eq.eq[1] != F2S(1.0f) || amy_global.bus[bus]->eq.eq[2] != F2S(1.0f)) {
-            parametric_eq_process(bus, fbl[0][bus]);
-        }
-        if(AMY_HAS_CHORUS) {
-            // apply per-bus chorus.
-            if(amy_global.bus[bus]->chorus.level > 0 && amy_global.bus[bus]->chorus.chorus_delay_lines[0] != NULL) {
-                // apply time-varying delays to both chans.
-                // delay_mod_val, the modulated delay amount, is set up before calling render_*.
-                SAMPLE scale = F2S(1.0f);
-                for (int16_t c=0; c < AMY_NCHANS; ++c) {
-                    apply_variable_delay(fbl[0][bus] + c * AMY_BLOCK_SIZE, amy_global.bus[bus]->chorus.chorus_delay_lines[c],
-                                         amy_global.bus[bus]->chorus.delay_mod, scale, amy_global.bus[bus]->chorus.level, 0);
-                    // flip delay direction for alternating channels.
-                    scale = -scale;
-                }
-            }
-        }
-        //}
-        if (AMY_HAS_ECHO) {
-            // Apply per-bus echo.
-            if (amy_global.bus[bus]->echo.level > 0 && amy_global.bus[bus]->echo.echo_delay_lines[0] != NULL ) {
-                for (int16_t c=0; c < AMY_NCHANS; ++c) {
-                    apply_fixed_delay(fbl[0][bus] + c * AMY_BLOCK_SIZE, amy_global.bus[bus]->echo.echo_delay_lines[c], amy_global.bus[bus]->echo.delay_samples, amy_global.bus[bus]->echo.level, amy_global.bus[bus]->echo.feedback, amy_global.bus[bus]->echo.filter_coef);
-                }
-            }
-        }
-        // Shared reverbs are post-fader aux sends. The source bus remains in
-        // the dry mix; only its scaled copy enters the selected room.
-        uint16_t room = amy_global.bus[bus]->reverb_send_room;
-        SAMPLE send = amy_global.bus[bus]->reverb_send_level;
-        if (room < amy_global.config.max_reverb_rooms && send != 0) {
-            SAMPLE gain = MUL8_SS(send, volume_scale[bus]);
-            SAMPLE *room_block = amy_global.reverb_rooms[room].block;
-            mix_bus_block(room_block, fbl[0][bus], gain, false);
-        }
-        if(AMY_HAS_REVERB) {
-            // apply per-bus reverb.
-            if(amy_global.bus[bus]->reverb.level > 0 && amy_global.bus[bus]->reverb.rev != NULL && amy_global.bus[bus]->reverb.rev->delay_1 != NULL) {
-                if(AMY_NCHANS == 1) {
-                    stereo_reverb(amy_global.bus[bus]->reverb.rev, fbl[0][bus], NULL, fbl[0][bus], NULL, AMY_BLOCK_SIZE, amy_global.bus[bus]->reverb.level);
-                } else {
-                    stereo_reverb(amy_global.bus[bus]->reverb.rev, fbl[0][bus], fbl[0][bus] + AMY_BLOCK_SIZE, fbl[0][bus], fbl[0][bus] + AMY_BLOCK_SIZE, AMY_BLOCK_SIZE, amy_global.bus[bus]->reverb.level);
-                }
-            }
-        }
-        if(amy_global.config.amy_external_bus_postprocess_hook != NULL) {
-            amy_global.config.amy_external_bus_postprocess_hook(bus, fbl[0][bus], AMY_BLOCK_SIZE);
-        }
-        #ifdef __EMSCRIPTEN__
-        // Web version of the bus postprocess hook (see the hooks table in
-        // docs/api.md): a JS function may process the bus buffer in place
-        // (buf is nchans sequential channel blocks of len samples). Runs on
-        // the AudioWorklet thread; Module is this scope's instance (its
-        // wasmMemory/exports let hook JS reach this module's memory).
-        EM_ASM({
-            if (typeof amy_bus_postprocess_js_hook === 'function') {
-                // In worker/worklet scopes the glue never attaches the
-                // wasmMemory runtime export to Module; hook JS needs it.
-                if (!Module.wasmMemory) Module.wasmMemory = wasmMemory;
-                amy_bus_postprocess_js_hook($0, $1, $2, $3, Module);
-            }
-        }, bus, fbl[0][bus], AMY_BLOCK_SIZE, AMY_NCHANS);
-        #endif
-    }  // end of per-bus FX
+    }
 
     if (amy_global.config.max_reverb_rooms > 0) {
         uint64_t reverb_stage_started =

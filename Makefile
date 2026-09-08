@@ -183,7 +183,7 @@ build-config-test:
 		tests/test_build_config.c -o tests/test_build_config_default
 	./tests/test_build_config_default
 	$(CC) $(CFLAGS) -Isrc \
-		-DAMY_BLOCK_SIZE=128 -DAMY_SAMPLE_RATE=48000 \
+		-DBLOCK_SIZE_BITS=7 -DAMY_SAMPLE_RATE=48000 \
 		-DEXPECT_AMY_BLOCK_SIZE=128 -DEXPECT_BLOCK_SIZE_BITS=7 \
 		-DEXPECT_AMY_SAMPLE_RATE=48000 \
 		tests/test_build_config.c -o tests/test_build_config_embedded

@@ -286,6 +286,7 @@ typedef enum {
 } amy_worker_job_t;
 
 static volatile amy_worker_job_t amy_worker_job = AMY_WORKER_RENDER_OSCS;
+static volatile uint16_t amy_render_split;
 
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
 static amy_esp_load_diagnostic_t esp_load_diagnostic;
@@ -658,7 +659,7 @@ void esp_render_task( void * pvParameters) {
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
             uint64_t started = amy_get_us();
 #endif
-            amy_render(0, AMY_OSCS/2, 1);
+            amy_render(0, amy_render_split, 1);
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
             esp_render_core_us[xPortGetCoreID()] =
                 (uint32_t)(amy_get_us() - started);
@@ -669,9 +670,30 @@ void esp_render_task( void * pvParameters) {
     }
 }
 
+static uint16_t esp_choose_render_split(void) {
+    uint16_t audible = 0;
+    for (uint16_t osc = 0; osc < AMY_OSCS; ++osc)
+        if (synth[osc] != NULL && synth[osc]->status == SYNTH_AUDIBLE)
+            ++audible;
+
+    if (audible == 0) return AMY_OSCS / 2;
+    uint16_t worker_target = (audible + 1) / 2;
+    for (uint16_t osc = 0; osc < AMY_OSCS; ++osc) {
+        if (synth[osc] != NULL && synth[osc]->status == SYNTH_AUDIBLE
+            && --worker_target == 0)
+            return osc + 1;
+    }
+    return AMY_OSCS / 2;
+}
+
 void esp_render_on_cores() {
     // Call amy_render on all the oscs, using multicore if available.
     if (amy_global.config.platform.multicore) {
+        // Instrument allocations are not distributed uniformly over the
+        // oscillator-number space. Split at the median currently-audible
+        // oscillator instead of at the array midpoint, while retaining the
+        // existing contiguous-range renderer and its exact ordering.
+        amy_render_split = esp_choose_render_split();
         // Tell the other core to start rendering.
         amy_worker_job = AMY_WORKER_RENDER_OSCS;
         xTaskNotifyGive(amy_render_handle);  // to esp_render_task
@@ -679,7 +701,7 @@ void esp_render_on_cores() {
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
         uint64_t started = amy_get_us();
 #endif
-        amy_render(AMY_OSCS/2, AMY_OSCS, 0);
+        amy_render(amy_render_split, AMY_OSCS, 0);
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
         esp_render_core_us[xPortGetCoreID()] =
             (uint32_t)(amy_get_us() - started);

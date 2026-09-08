@@ -167,9 +167,18 @@ extern void amy_set_gamma9001_pcm(const int16_t * data);
 #define AMY_DEFAULT_NUM_BUSES 4
 #define AMY_DEFAULT_BUS 0
 
-// Shared reverbs are optional aux-send rooms.  With max_reverb_rooms == 0,
-// AMY retains its historical inline per-bus reverb behavior exactly.
+// Shared reverbs are optional aux-return rooms. With max_reverb_rooms == 0,
+// AMY retains its historical inline per-bus reverb behavior exactly. A host
+// may mark individual returns as external and replace the built-in reverb
+// with another in-place effect through amy_external_aux_return_process_hook.
 #define AMY_REVERB_ROOM_NONE UINT16_MAX
+
+// Compile-time ceiling for allocated built-in reverb networks, including both
+// shared returns and historical inline per-bus reverbs. Embedded hosts can set
+// this lower to make their memory/performance envelope explicit.
+#ifndef AMY_MAX_REVERBS
+#define AMY_MAX_REVERBS UINT16_MAX
+#endif
 
 // How many external CV inputs to contemplate.
 #define AMY_MAX_CV_IN 2
@@ -1021,16 +1030,28 @@ typedef struct  {
     uint32_t max_sequence_events;
     uint32_t max_sequence_executions;
 
-    // Optional shared reverb rooms. reverb_room_memory may point to
+    // Optional shared aux-return rooms. reverb_room_memory may point to
     // max_reverb_rooms caller-owned arenas, each reverb_room_memory_bytes
     // long. A NULL entry falls back to AMY's configured heaps. Supplying
-    // fixed arenas lets an embedded host reserve isolated SRAM banks.
+    // fixed arenas lets an embedded host reserve isolated SRAM banks. The
+    // historical max_reverb_rooms name is retained for source compatibility.
     uint16_t max_reverb_rooms;
     void **reverb_room_memory;
     size_t reverb_room_memory_bytes;
     // Collect lock-free timing counters for later readout. Disabled by
     // default so production builds pay no timer-read cost in the audio path.
     uint8_t reverb_diagnostics;
+
+    // Optional max_reverb_rooms-byte selector. A nonzero entry makes that
+    // return externally processed instead of allocating AMY's built-in
+    // reverb. The realtime callback receives the accumulated post-fader send
+    // block and replaces it in place with the return signal.
+    const uint8_t *aux_return_external;
+    void (*amy_external_aux_return_process_hook)(uint16_t return_index,
+                                                  SAMPLE *block,
+                                                  uint16_t frames,
+                                                  void *user_data);
+    void *amy_external_aux_return_user_data;
 
 } amy_config_t;
 
@@ -1134,6 +1155,8 @@ typedef struct shared_reverb_state {
     size_t arena_bytes;
     size_t arena_used;
     uint8_t block_heap_owned;
+    uint8_t external_effect;
+    uint8_t reverb_counted;
     // One realtime writer updates these counters; a low-priority reader uses
     // diagnostic_seq as a sequence lock and never blocks the audio task.
     volatile uint32_t diagnostic_seq;
@@ -1183,6 +1206,7 @@ typedef struct global_state {
     float pitch_bend;  // Legacy global pitch bend, will be subsumed per-synth (instrument).
     
     uint16_t delta_qsize;
+    uint16_t allocated_reverbs;
     struct delta * delta_queue; // start of the sorted queue of deltas to execute.
     int16_t latency_ms;
     float tempo;

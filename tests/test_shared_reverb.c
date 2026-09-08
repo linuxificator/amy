@@ -11,6 +11,9 @@ static int failures;
 static uint8_t room_memory[2][ROOM_BYTES];
 static void *room_arenas[2] = { room_memory[0], room_memory[1] };
 static unsigned bus_hook_calls[4];
+static unsigned external_return_calls;
+static bool external_return_received_audio;
+static uint8_t external_return_selector[2] = { 0, 1 };
 
 #define CHECK(c, fmt, ...) do {                                           \
     if (c) printf("  ok   " fmt "\n", ##__VA_ARGS__);                    \
@@ -28,6 +31,18 @@ static void count_bus_hook(uint16_t bus, SAMPLE *buf, uint16_t len) {
     CHECK(bus < 4, "postprocess hook bus is in range (%u)", bus);
     CHECK(len == AMY_BLOCK_SIZE, "postprocess hook receives one block (%u)", len);
     if (bus < 4) ++bus_hook_calls[bus];
+}
+
+static void process_external_return(uint16_t return_index, SAMPLE *block,
+                                    uint16_t frames, void *user_data) {
+    unsigned *calls = (unsigned *)user_data;
+    CHECK(return_index == 1, "external callback receives return index");
+    CHECK(frames == AMY_BLOCK_SIZE, "external callback receives one block");
+    ++*calls;
+    for (int i = 0; i < frames * AMY_NCHANS; ++i) {
+        if (block[i] != 0) external_return_received_audio = true;
+        block[i] /= 2;
+    }
 }
 
 static void start_shared_with_hook(bool hook) {
@@ -125,6 +140,43 @@ static void test_external_hook_serial_fallback(void) {
         CHECK(bus_hook_calls[bus] == 1, "bus %d hook ran once", bus);
 }
 
+static void test_external_aux_return(void) {
+    puts("host-selected aux-return effect");
+    amy_stop();
+    external_return_calls = 0;
+    external_return_received_audio = false;
+    amy_config_t config = amy_default_config();
+    config.features.startup_bleep = 0;
+    config.max_buses = 4;
+    config.max_reverb_rooms = 2;
+    config.reverb_room_memory = room_arenas;
+    config.reverb_room_memory_bytes = ROOM_BYTES;
+    config.aux_return_external = external_return_selector;
+    config.amy_external_aux_return_process_hook = process_external_return;
+    config.amy_external_aux_return_user_data = &external_return_calls;
+    amy_start(config);
+
+    CHECK(amy_global.allocated_reverbs == 1,
+          "only the built-in return allocates a reverb");
+    CHECK(amy_global.reverb_rooms[0].effect.rev != NULL,
+          "return 0 uses AMY's built-in effect");
+    CHECK(amy_global.reverb_rooms[1].external_effect,
+          "return 1 is host processed");
+    CHECK(amy_global.reverb_rooms[1].effect.rev == NULL,
+          "external return allocates no built-in reverb");
+    CHECK(amy_global.reverb_rooms[1].arena_used
+              == sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS,
+          "external return arena contains only its block");
+
+    amy_add_message("y2hS1,1Zv0w0n60l1y2Z");
+    amy_execute_deltas();
+    for (int i = 0; i < 4; ++i) amy_simple_fill_buffer();
+    CHECK(external_return_calls == 4,
+          "external effect ran once per block (%u)", external_return_calls);
+    CHECK(external_return_received_audio,
+          "external effect received the selected bus audio");
+}
+
 static void test_legacy_default(void) {
     puts("legacy per-bus behavior remains the default");
     amy_stop();
@@ -149,6 +201,7 @@ int main(void) {
     test_arena_and_wire_routing();
     test_audio_and_deferred_diagnostics();
     test_external_hook_serial_fallback();
+    test_external_aux_return();
     test_legacy_default();
     amy_stop();
     if (failures) return 1;

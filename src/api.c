@@ -55,6 +55,9 @@ amy_config_t amy_default_config() {
     c.reverb_room_memory = NULL;
     c.reverb_room_memory_bytes = 0;
     c.reverb_diagnostics = 0;
+    c.aux_return_external = NULL;
+    c.amy_external_aux_return_process_hook = NULL;
+    c.amy_external_aux_return_user_data = NULL;
     c.max_voices = 64;
     c.max_synths = 64;
     c.max_memory_patches = 32;

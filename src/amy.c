@@ -403,9 +403,23 @@ void config_chorus(uint16_t bus, float level, uint16_t max_delay, float lfo_freq
 }
 
 bool alloc_reverb_delay_lines(uint16_t bus) {
-    if (amy_global.bus[bus]->reverb.rev == NULL)
+    if (amy_global.bus[bus]->reverb.rev == NULL) {
+        if (amy_global.allocated_reverbs >= AMY_MAX_REVERBS) {
+            fprintf(stderr,
+                    "cannot allocate reverb on bus %u: AMY_MAX_REVERBS=%u\n",
+                    bus, (unsigned)AMY_MAX_REVERBS);
+            return false;
+        }
         amy_global.bus[bus]->reverb.rev = new_reverb();
-    return init_stereo_reverb(amy_global.bus[bus]->reverb.rev);
+        if (amy_global.bus[bus]->reverb.rev == NULL
+            || !init_stereo_reverb(amy_global.bus[bus]->reverb.rev)) {
+            delete_reverb(amy_global.bus[bus]->reverb.rev);
+            amy_global.bus[bus]->reverb.rev = NULL;
+            return false;
+        }
+        ++amy_global.allocated_reverbs;
+    }
+    return true;
 }
 
 void dealloc_reverb_delay_lines(uint16_t bus) {
@@ -413,6 +427,7 @@ void dealloc_reverb_delay_lines(uint16_t bus) {
         deinit_stereo_reverb(amy_global.bus[bus]->reverb.rev);
         delete_reverb(amy_global.bus[bus]->reverb.rev);
         amy_global.bus[bus]->reverb.rev = NULL;
+        if (amy_global.allocated_reverbs > 0) --amy_global.allocated_reverbs;
     }
 }
 
@@ -463,10 +478,50 @@ static bool init_reverb_room(uint16_t room) {
     state->effect.liveness = REVERB_DEFAULT_LIVENESS;
     state->effect.damping = REVERB_DEFAULT_DAMPING;
     state->effect.xover_hz = REVERB_DEFAULT_XOVER_HZ;
+    state->external_effect = amy_global.config.aux_return_external != NULL
+        && amy_global.config.aux_return_external[room] != 0;
 
     void *arena = NULL;
     if (amy_global.config.reverb_room_memory != NULL)
         arena = amy_global.config.reverb_room_memory[room];
+    if (state->external_effect) {
+        size_t block_bytes = sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS;
+        if (amy_global.config.amy_external_aux_return_process_hook == NULL) {
+            fprintf(stderr,
+                    "aux return %u is external but has no process hook\n", room);
+            return false;
+        }
+        if (arena != NULL) {
+            if (amy_global.config.reverb_room_memory_bytes < block_bytes) {
+                fprintf(stderr,
+                        "external aux return %u needs at least %zu arena bytes\n",
+                        room, block_bytes);
+                return false;
+            }
+            state->arena = arena;
+            state->arena_bytes = amy_global.config.reverb_room_memory_bytes;
+            state->arena_used = block_bytes;
+            state->block = (SAMPLE *)arena;
+        } else {
+            state->block = (SAMPLE *)malloc_caps(
+                block_bytes, amy_global.config.ram_caps_block);
+            state->block_heap_owned = 1;
+            if (state->block == NULL) {
+                fprintf(stderr, "unable to allocate external aux return %u\n",
+                        room);
+                return false;
+            }
+        }
+        bzero(state->block, block_bytes);
+        return true;
+    }
+
+    if (amy_global.allocated_reverbs >= AMY_MAX_REVERBS) {
+        fprintf(stderr,
+                "cannot allocate shared reverb %u: AMY_MAX_REVERBS=%u\n",
+                room, (unsigned)AMY_MAX_REVERBS);
+        return false;
+    }
     if (arena != NULL) {
         state->arena = arena;
         state->arena_bytes = amy_global.config.reverb_room_memory_bytes;
@@ -487,11 +542,23 @@ static bool init_reverb_room(uint16_t room) {
         if (state->effect.rev == NULL || state->block == NULL
             || !init_stereo_reverb(state->effect.rev)) {
             fprintf(stderr, "unable to allocate shared reverb room %u\n", room);
+            if (state->effect.rev != NULL) {
+                deinit_stereo_reverb(state->effect.rev);
+                delete_reverb(state->effect.rev);
+                state->effect.rev = NULL;
+            }
+            if (state->block_heap_owned) {
+                free(state->block);
+                state->block = NULL;
+                state->block_heap_owned = 0;
+            }
             return false;
         }
         bzero(state->block,
               sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
     }
+    ++amy_global.allocated_reverbs;
+    state->reverb_counted = 1;
     config_stereo_reverb(state->effect.rev, state->effect.liveness,
                          state->effect.xover_hz, state->effect.damping);
     return true;
@@ -504,6 +571,8 @@ static void deinit_reverb_room(shared_reverb_state_t *state) {
         delete_reverb(state->effect.rev);
     }
     if (state->block_heap_owned) free(state->block);
+    if (state->reverb_counted && amy_global.allocated_reverbs > 0)
+        --amy_global.allocated_reverbs;
     *state = (shared_reverb_state_t){0};
 }
 
@@ -513,6 +582,12 @@ void config_reverb_room(uint16_t room, float level, float liveness,
         || amy_global.reverb_rooms == NULL) {
         fprintf(stderr, "shared reverb room %u is not configured (max %u)\n",
                 room, amy_global.config.max_reverb_rooms);
+        return;
+    }
+    if (amy_global.reverb_rooms[room].external_effect) {
+        fprintf(stderr,
+                "aux return %u is externally processed, not a built-in reverb\n",
+                room);
         return;
     }
     reverb_state_t *effect = &amy_global.reverb_rooms[room].effect;
@@ -549,12 +624,23 @@ void config_reverb_send(uint16_t bus, uint16_t room, float level) {
 void amy_process_reverb_room(uint16_t room) {
     if (room >= amy_global.config.max_reverb_rooms) return;
     shared_reverb_state_t *state = &amy_global.reverb_rooms[room];
-    if (state->effect.rev == NULL || state->block == NULL) return;
+    if (state->block == NULL) return;
+    uint64_t started = amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
+    if (state->external_effect) {
+        amy_global.config.amy_external_aux_return_process_hook(
+            room, state->block, AMY_BLOCK_SIZE,
+            amy_global.config.amy_external_aux_return_user_data);
+        if (amy_global.config.reverb_diagnostics)
+            reverb_diagnostic_record(&state->diagnostic_seq,
+                                     &state->diagnostic,
+                                     (uint32_t)(amy_get_us() - started));
+        return;
+    }
+    if (state->effect.rev == NULL) return;
     // A disabled return cannot contribute to the mix. Avoid walking all of
     // its delay memory, but keep processing an enabled room through silent
     // input so an existing tail decays naturally.
     if (state->effect.level == 0) return;
-    uint64_t started = amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
     stereo_reverb_wet(state->effect.rev, state->block,
                       AMY_NCHANS > 1 ? state->block + AMY_BLOCK_SIZE : NULL,
                       state->block,
@@ -726,6 +812,7 @@ int8_t global_init(amy_config_t c) {
     amy_global.i2s_is_in_background = 0;
     amy_global.delta_queue = NULL;
     amy_global.delta_qsize = 0;
+    amy_global.allocated_reverbs = 0;
     // The per-bus tables are sized from max_buses; nothing about a bus is a
     // fixed-width array any more.
     amy_global.volume = (float *)malloc_caps(sizeof(float) * amy_global.config.max_buses,

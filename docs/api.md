@@ -203,10 +203,13 @@ amy_start(amy_config);
 | `write_samples_fn` | fn ptr | `NULL` | If provided, `amy_update` will call this with each new block of samples | 
 | `max_oscs` | Int | 180 | How many oscillators to support |
 | `max_buses` | Int | 4 | How many FX buses to support. No compile-time ceiling — every bus-indexed table is allocated from this at `amy_start`. Each bus costs a few KB of mix buffers even when idle, plus whatever its effects allocate once switched on |
-| `max_reverb_rooms` | Int | 0 | Number of optional shared aux-return reverbs. Zero preserves the historical per-bus reverb path. |
-| `reverb_room_memory` | `void **` | `NULL` | Optional array of one caller-owned arena per shared room. A null entry uses AMY's configured heaps. This lets embedded hosts keep each room in a dedicated SRAM bank. |
-| `reverb_room_memory_bytes` | bytes | 0 | Size of every supplied room arena. A 128 KiB arena holds the current stereo reverb network and its block workspace. |
-| `reverb_diagnostics` | `0=off, 1=on` | Off | Store per-room and total-stage timing counters for later retrieval. Nothing is printed in the realtime path. |
+| `max_reverb_rooms` | Int | 0 | Number of optional shared aux returns. The historical name is retained for source compatibility. Zero preserves the historical per-bus reverb path. |
+| `reverb_room_memory` | `void **` | `NULL` | Optional array of one caller-owned arena per aux return. A null entry uses AMY's configured heaps. This lets embedded hosts keep each built-in reverb in a dedicated SRAM bank. |
+| `reverb_room_memory_bytes` | bytes | 0 | Size of every supplied return arena. A 128 KiB arena holds the current stereo reverb network and its block workspace. An external return only uses the block workspace. |
+| `reverb_diagnostics` | `0=off, 1=on` | Off | Store per-return and total-stage timing counters for later retrieval. Nothing is printed in the realtime path. |
+| `aux_return_external` | `uint8_t *` | `NULL` | Optional `max_reverb_rooms`-element selector. A nonzero entry replaces that return's built-in reverb with the host callback below. |
+| `amy_external_aux_return_process_hook` | fn ptr | `NULL` | Realtime host callback that replaces selected return blocks in place. It must not block, allocate or perform I/O. |
+| `amy_external_aux_return_user_data` | pointer | `NULL` | Opaque host value passed to the external aux-return callback. |
 | `max_sequencer_tags` | Int | 256 | Number of reusable sequencer tag identities |
 | `max_sequence_events` | Int | 64 | Maximum ordinary events in one reusable tagged sequence |
 | `max_sequence_executions` | Int | 32 | Maximum active or alignment-pending reusable-sequence executions |
@@ -490,12 +493,12 @@ Default AMY has 4 buses, 0..3.  Set `max_buses` in `amy_config_t` before `amy_st
 | `M`    | `echo_level, echo_delay_ms, echo_max_delay_ms, echo_feedback, echo_filter_coef` | `echo` | float[,int,int,float,float] | Echo parameters --  level, delay_ms, max_delay_ms, feedback, filter_coef (-1 is HPF, 0 is flat, +1 is LPF). |
 | `x`    | `eq_l, eq_m, eq_h` |`eq` | float,float,float | Equalization in dB low (~800Hz) / med (~2500Hz) / high (~7500Hz) -15 to 15. 0 is off. default 0. |
 
-#### Shared reverb rooms
+#### Shared aux returns
 
 Per-bus `reverb`/`h` remains the default and is unchanged. A host that needs
-many buses but only a few acoustic spaces can instead enable shared rooms in
-`amy_config_t`. Each room owns one reverb delay network; any number of buses
-can feed it:
+many buses but only a few end-effect instances can instead enable shared
+returns in `amy_config_t`. By default each return owns one reverb delay
+network; any number of buses can feed it:
 
 ```python
 amy.send(reverb_room=[0, 0.6, 0.85, 0.5, 3000])
@@ -507,11 +510,27 @@ amy.send(bus=2, reverb_send=[0, 0.0])  # dry bus; room selection retained
 The equivalent wire messages are `hR0,0.6,0.85,0.5,3000Z`,
 `y0hS0,1Z`, `y1hS0,0.35Z`, and `y2hS0,0Z`. Sends are post-fader: changing a
 bus volume changes both its dry signal and what it contributes to the room.
-The room return is added once to the final mix, so buses sharing a room also
-share its tail and room parameters.
+The return is added once to the final mix, so buses sharing a built-in reverb
+also share its tail and room parameters.
 
-On ESP with multicore rendering, rooms 0 and 1 are processed concurrently on
-the existing two pinned audio/render tasks. Additional rooms are processed
+The routing is deliberately an aux-send/return abstraction, not a requirement
+that every return be a room simulation. A C host can mark an entry in
+`aux_return_external` and process that return's accumulated block in place with
+`amy_external_aux_return_process_hook`. That permits a lighter reverb or a
+different end effect without changing AMY's bus summation. External returns
+do not allocate an AMY reverb network; their parameters and wet level belong
+to the host callback. `hS` still controls each bus's weighted send. `hR` only
+configures built-in AMY reverbs.
+
+`AMY_MAX_REVERBS` is an optional compile-time ceiling for memory-intensive
+built-in reverb networks. It counts both shared built-in returns and legacy
+per-bus reverbs; external returns do not count. Its default (`UINT16_MAX`)
+places no practical restriction on desktop hosts. A constrained target can,
+for example, compile with `-DAMY_MAX_REVERBS=2` while retaining any number of
+external returns supported by its runtime configuration.
+
+On ESP with multicore rendering, returns 0 and 1 are processed concurrently on
+the existing two pinned audio/render tasks. Additional returns are processed
 serially. `amy_reverb_diagnostics_get()` and
 `amy_reverb_stage_diagnostics_get()` take lock-free snapshots of counters
 collected by those tasks; `amy_reverb_diagnostics_print()` is intended to be

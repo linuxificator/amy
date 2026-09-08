@@ -140,15 +140,17 @@ CTESTS = tests/test_clock_wrap tests/test_sequencer_active tests/test_sequencer_
          tests/test_synth_readout tests/test_log2_lut tests/test_clone_on_grow \
          tests/test_timebase_reset tests/test_osc_free_on_release \
          tests/test_voice_osc_range tests/test_dist_coefs tests/test_dist_scope \
-         tests/test_ignore_note_offs tests/test_shared_reverb
+         tests/test_ignore_note_offs tests/test_shared_reverb \
+         tests/test_reverb_limit
 
 # Static pattern rules, so these win over the generic %.o: %.c above (which
 # would compile without -Isrc and fail to find amy.h).
 SEQUENCE_SPECIAL_TESTS = tests/test_sequencer_oom tests/test_sequencer_concurrency
 INSTRUMENT_SPECIAL_TEST = tests/test_ignore_note_offs
-SPECIAL_TESTS = $(SEQUENCE_SPECIAL_TESTS) $(INSTRUMENT_SPECIAL_TEST)
+REVERB_SPECIAL_TEST = tests/test_reverb_limit
+SPECIAL_TESTS = $(SEQUENCE_SPECIAL_TESTS) $(INSTRUMENT_SPECIAL_TEST) $(REVERB_SPECIAL_TEST)
 
-$(addsuffix .o,$(filter-out $(SEQUENCE_SPECIAL_TESTS),$(CTESTS))): %.o: %.c $(HEADERS) src/patches.h
+$(addsuffix .o,$(filter-out $(SPECIAL_TESTS),$(CTESTS))): %.o: %.c $(HEADERS) src/patches.h
 	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
 $(filter-out $(SPECIAL_TESTS),$(CTESTS)): %: %.o $(OBJECTS)
@@ -168,10 +170,24 @@ tests/test_sequencer_concurrency.o: tests/test_sequencer_concurrency.c $(HEADERS
 $(SEQUENCE_SPECIAL_TESTS): %: %.o tests/sequencer_testing_impl.o $(filter-out src/sequencer.o,$(OBJECTS))
 	$(CC) $(CFLAGS) $(filter-out src/sequencer.o,$(OBJECTS)) tests/sequencer_testing_impl.o $< -Wall $(LIBS) -o $@
 
+# Compile amy.c once with a small embedded-style built-in reverb ceiling. The
+# rest of AMY is unchanged because the ceiling only guards effect allocation.
+tests/amy_reverb_limit_impl.o: src/amy.c $(HEADERS) src/patches.h
+	$(CC) $(CFLAGS) -DAMY_MAX_REVERBS=1 -c $< -o $@
+
+tests/test_reverb_limit.o: tests/test_reverb_limit.c $(HEADERS) src/patches.h
+	$(CC) $(CFLAGS) -DAMY_MAX_REVERBS=1 -Isrc -c $< -o $@
+
+tests/test_reverb_limit: tests/test_reverb_limit.o tests/amy_reverb_limit_impl.o $(filter-out src/amy.o,$(OBJECTS))
+	$(CC) $(CFLAGS) $(filter-out src/amy.o,$(OBJECTS)) tests/amy_reverb_limit_impl.o $< -Wall $(LIBS) -o $@
+
 # Read internal pool occupancy in this test without parsing stderr or relying
 # on platform-specific file-descriptor redirection.
 tests/instrument_testing_impl.o: src/instrument.c $(HEADERS) src/patches.h
 	$(CC) $(CFLAGS) -DAMY_INSTRUMENT_TESTING -c $< -o $@
+
+tests/test_ignore_note_offs.o: tests/test_ignore_note_offs.c $(HEADERS) src/patches.h
+	$(CC) $(CFLAGS) -DAMY_INSTRUMENT_TESTING -Isrc -c $< -o $@
 
 $(INSTRUMENT_SPECIAL_TEST): %: %.o tests/instrument_testing_impl.o $(filter-out src/instrument.o,$(OBJECTS))
 	$(CC) $(CFLAGS) $(filter-out src/instrument.o,$(OBJECTS)) tests/instrument_testing_impl.o $< -Wall $(LIBS) -o $@

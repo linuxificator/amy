@@ -10,6 +10,7 @@
 static int failures;
 static uint8_t room_memory[2][ROOM_BYTES];
 static void *room_arenas[2] = { room_memory[0], room_memory[1] };
+static unsigned bus_hook_calls[4];
 
 #define CHECK(c, fmt, ...) do {                                           \
     if (c) printf("  ok   " fmt "\n", ##__VA_ARGS__);                    \
@@ -22,7 +23,14 @@ static bool inside_room(const void *pointer, int room) {
     return p >= first && p < first + ROOM_BYTES;
 }
 
-static void start_shared(void) {
+static void count_bus_hook(uint16_t bus, SAMPLE *buf, uint16_t len) {
+    (void)buf;
+    CHECK(bus < 4, "postprocess hook bus is in range (%u)", bus);
+    CHECK(len == AMY_BLOCK_SIZE, "postprocess hook receives one block (%u)", len);
+    if (bus < 4) ++bus_hook_calls[bus];
+}
+
+static void start_shared_with_hook(bool hook) {
     amy_stop();
     amy_config_t config = amy_default_config();
     config.features.startup_bleep = 0;
@@ -31,8 +39,11 @@ static void start_shared(void) {
     config.reverb_room_memory = room_arenas;
     config.reverb_room_memory_bytes = ROOM_BYTES;
     config.reverb_diagnostics = 1;
+    config.amy_external_bus_postprocess_hook = hook ? count_bus_hook : NULL;
     amy_start(config);
 }
+
+static void start_shared(void) { start_shared_with_hook(false); }
 
 static void test_arena_and_wire_routing(void) {
     puts("fixed rooms and hR/hS routing");
@@ -72,26 +83,46 @@ static void test_audio_and_deferred_diagnostics(void) {
     // Configured storage is cheap while its return level is disabled: it must
     // not walk the delay lines merely because a room exists.
     for (int i = 0; i < 2; ++i) amy_simple_fill_buffer();
-    amy_reverb_diagnostic_t room, stage;
-    CHECK(amy_reverb_diagnostics_get(0, &room), "disabled-room snapshot succeeds");
-    CHECK(room.calls == 0, "disabled room performs no DSP work");
+    amy_reverb_diagnostic_t room0, room1, stage;
+    CHECK(amy_reverb_diagnostics_get(0, &room0), "disabled-room snapshot succeeds");
+    CHECK(room0.calls == 0, "disabled room performs no DSP work");
 
-    amy_add_message("hR0,0.8,0.85,0.5,3000Zy0hS0,1Zv0w0n60l1Z");
+    amy_add_message("hR0,0.8,0.85,0.5,3000Z"
+                    "hR1,0.6,0.75,0.4,2600Z"
+                    "y0hS0,1Zy1hS1,0.7Z"
+                    "v0w0n60l1y0Zv1w0n67l1y1Z");
     for (int i = 0; i < 48; ++i) amy_simple_fill_buffer();
 
-    CHECK(amy_reverb_diagnostics_get(0, &room), "room snapshot succeeds");
+    CHECK(amy_reverb_diagnostics_get(0, &room0), "room 0 snapshot succeeds");
+    CHECK(amy_reverb_diagnostics_get(1, &room1), "room 1 snapshot succeeds");
     CHECK(amy_reverb_stage_diagnostics_get(&stage), "stage snapshot succeeds");
-    CHECK(room.calls == 48, "room measured once per rendered block (%llu)",
-          (unsigned long long)room.calls);
+    CHECK(room0.calls == 48, "room 0 ran once per rendered block (%llu)",
+          (unsigned long long)room0.calls);
+    CHECK(room1.calls == 48, "room 1 ran once per rendered block (%llu)",
+          (unsigned long long)room1.calls);
     CHECK(stage.calls == 50, "stage measured once per rendered block (%llu)",
           (unsigned long long)stage.calls);
-    CHECK(room.core_mask == 1, "host room ran on its one render core");
+    CHECK(room0.core_mask == 1 && room1.core_mask == 1,
+          "both host rooms ran on the host render core");
 
-    bool wet_nonzero = false;
-    SAMPLE *wet = amy_global.reverb_rooms[0].block;
-    for (int i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
-        if (wet[i] != 0) wet_nonzero = true;
-    CHECK(wet_nonzero, "shared room produced a wet return");
+    for (int room = 0; room < 2; ++room) {
+        bool wet_nonzero = false;
+        SAMPLE *wet = amy_global.reverb_rooms[room].block;
+        for (int i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
+            if (wet[i] != 0) wet_nonzero = true;
+        CHECK(wet_nonzero, "shared room %d produced a wet return", room);
+    }
+}
+
+static void test_external_hook_serial_fallback(void) {
+    puts("external bus hooks retain one ordered callback per bus");
+    for (int bus = 0; bus < 4; ++bus) bus_hook_calls[bus] = 0;
+    start_shared_with_hook(true);
+    amy_add_message("y3V1Z");
+    amy_execute_deltas();
+    amy_simple_fill_buffer();
+    for (int bus = 0; bus < 4; ++bus)
+        CHECK(bus_hook_calls[bus] == 1, "bus %d hook ran once", bus);
 }
 
 static void test_legacy_default(void) {
@@ -117,6 +148,7 @@ int main(void) {
     amy_start(config);
     test_arena_and_wire_routing();
     test_audio_and_deferred_diagnostics();
+    test_external_hook_serial_fallback();
     test_legacy_default();
     amy_stop();
     if (failures) return 1;

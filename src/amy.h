@@ -1297,7 +1297,6 @@ void amy_process_bus_subset(uint8_t partition, uint8_t partitions);
 #ifdef ESP_PLATFORM
 void amy_platform_process_bus_subsets(void);
 void amy_platform_process_reverb_rooms(void);
-void amy_platform_process_bus_subsets_and_reverb_rooms(void);
 #endif
 bool amy_reverb_diagnostics_get(uint16_t room,
                                 amy_reverb_diagnostic_t *result);

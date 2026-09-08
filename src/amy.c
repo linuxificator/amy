@@ -3085,29 +3085,13 @@ int16_t * amy_fill_buffer() {
 #endif
     bool serial_bus_hooks =
         amy_global.config.amy_external_bus_postprocess_hook != NULL;
-    bool shared_reverb_processed = false;
 #ifdef __EMSCRIPTEN__
     // A JS hook can only be discovered inside the worklet call itself.
     serial_bus_hooks = true;
 #endif
     if (!serial_bus_hooks) {
 #ifdef ESP_PLATFORM
-        if (amy_global.config.max_reverb_rooms > 0) {
-            uint64_t reverb_stage_started =
-                amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
-            amy_platform_process_bus_subsets_and_reverb_rooms();
-            shared_reverb_processed = true;
-            // On ESP this stage deliberately includes each room's complete
-            // bus path. Per-room diagnostics still measure only reverb DSP;
-            // the stage value measures the single parallel scheduling span.
-            if (amy_global.config.reverb_diagnostics)
-                reverb_diagnostic_record(
-                    &reverb_stage_diagnostic_seq,
-                    &reverb_stage_diagnostic,
-                    (uint32_t)(amy_get_us() - reverb_stage_started));
-        } else {
-            amy_platform_process_bus_subsets();
-        }
+        amy_platform_process_bus_subsets();
 #else
         amy_process_bus_subset(0, 1);
 #endif
@@ -3137,8 +3121,7 @@ int16_t * amy_fill_buffer() {
     fill_stage_started_us = amy_get_us();
 #endif
 
-    if (!shared_reverb_processed
-        && amy_global.config.max_reverb_rooms > 0) {
+    if (amy_global.config.max_reverb_rooms > 0) {
         uint64_t reverb_stage_started =
             amy_global.config.reverb_diagnostics ? amy_get_us() : 0;
 #ifdef ESP_PLATFORM

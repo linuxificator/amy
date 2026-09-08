@@ -747,14 +747,14 @@ typedef struct amy_event {
     float reverb_liveness;
     float reverb_damping;
     float reverb_xover_hz;
-    // hRroom,level,liveness,damping,xover configures a shared room.
+    // hRroom,level,liveness,damping,xover configures a built-in shared reverb.
     uint16_t reverb_room;
     float reverb_room_level;
     float reverb_room_liveness;
     float reverb_room_damping;
     float reverb_room_xover_hz;
-    // yBUS hSroom,level sends one bus to one shared room. A zero level is
-    // the explicit off state and does not disturb the room's existing tail.
+    // yBUS hSreturn,level sends one bus to one shared aux return. A zero level
+    // is the explicit off state and does not disturb an effect's existing tail.
     uint16_t reverb_send_room;
     float reverb_send_level;
 } amy_event;
@@ -1156,7 +1156,6 @@ typedef struct shared_reverb_state {
     size_t arena_used;
     uint8_t block_heap_owned;
     uint8_t external_effect;
-    uint8_t reverb_counted;
     // One realtime writer updates these counters; a low-priority reader uses
     // diagnostic_seq as a sequence lock and never blocks the audio task.
     volatile uint32_t diagnostic_seq;

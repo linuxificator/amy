@@ -516,10 +516,10 @@ int amy_parse_dist_layer_message(char *message, amy_event *e) {
 }
 
 // Parser for the reverb family. A numeric payload keeps the historical
-// per-bus h<level,live,damp,xover> command. hR addresses one shared room and
-// hS addresses the send on the event's bus. Keeping these under h makes the
-// wire protocol advertise one coherent effect rather than consuming unrelated
-// top-level letters.
+// per-bus h<level,live,damp,xover> command. hR configures one built-in shared
+// reverb; hS addresses the aux send on the event's bus. Keeping these under h
+// preserves the established wire family without consuming unrelated top-level
+// letters.
 static int amy_parse_reverb_layer_message(char *message, amy_event *e) {
     if (message[0] != 'R' && message[0] != 'S') {
         float values[4];
@@ -539,7 +539,8 @@ static int amy_parse_reverb_layer_message(char *message, amy_event *e) {
     if (!isfinite(values[0]) || values[0] < 0.0f
         || values[0] >= (float)AMY_REVERB_ROOM_NONE
         || values[0] != floorf(values[0])) {
-        fprintf(stderr, "invalid shared reverb room: expected an integer 0..65534\n");
+        fprintf(stderr,
+                "invalid aux return index: expected an integer 0..65534\n");
         return 1;
     }
 

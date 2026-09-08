@@ -558,7 +558,6 @@ static bool init_reverb_room(uint16_t room) {
               sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
     }
     ++amy_global.allocated_reverbs;
-    state->reverb_counted = 1;
     config_stereo_reverb(state->effect.rev, state->effect.liveness,
                          state->effect.xover_hz, state->effect.damping);
     return true;
@@ -566,12 +565,13 @@ static bool init_reverb_room(uint16_t room) {
 
 static void deinit_reverb_room(shared_reverb_state_t *state) {
     if (state == NULL) return;
+    bool built_in_reverb = state->effect.rev != NULL;
     if (state->effect.rev != NULL) {
         deinit_stereo_reverb(state->effect.rev);
         delete_reverb(state->effect.rev);
     }
     if (state->block_heap_owned) free(state->block);
-    if (state->reverb_counted && amy_global.allocated_reverbs > 0)
+    if (built_in_reverb && amy_global.allocated_reverbs > 0)
         --amy_global.allocated_reverbs;
     *state = (shared_reverb_state_t){0};
 }
@@ -580,7 +580,7 @@ void config_reverb_room(uint16_t room, float level, float liveness,
                         float damping, float xover_hz) {
     if (room >= amy_global.config.max_reverb_rooms
         || amy_global.reverb_rooms == NULL) {
-        fprintf(stderr, "shared reverb room %u is not configured (max %u)\n",
+        fprintf(stderr, "aux return %u is not configured (max %u)\n",
                 room, amy_global.config.max_reverb_rooms);
         return;
     }
@@ -607,13 +607,13 @@ void config_reverb_send(uint16_t bus, uint16_t room, float level) {
     bus = amy_validate_bus(bus);
     if (room >= amy_global.config.max_reverb_rooms
         || amy_global.reverb_rooms == NULL) {
-        fprintf(stderr, "shared reverb room %u is not configured (max %u)\n",
+        fprintf(stderr, "aux return %u is not configured (max %u)\n",
                 room, amy_global.config.max_reverb_rooms);
         return;
     }
     if (AMY_IS_UNSET(level)) level = S2F(amy_global.bus[bus]->reverb_send_level);
     if (!isfinite(level)) {
-        fprintf(stderr, "shared reverb send level must be finite\n");
+        fprintf(stderr, "aux send level must be finite\n");
         return;
     }
     if (level < 0) level = 0;

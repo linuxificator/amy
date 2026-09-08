@@ -989,6 +989,10 @@ uint16_t amy_last_audible_osc_count[2];
 typedef struct amy_fill_stage_diagnostic {
     uint64_t prefix_sum_us;
     uint64_t merge_sum_us;
+    uint64_t room_clear_sum_us;
+    uint64_t bus_fx_sum_us;
+    uint64_t bus_send_sum_us;
+    uint64_t bus_post_sum_us;
     uint64_t buses_sum_us;
     uint64_t reverb_sum_us;
     uint64_t output_sum_us;
@@ -996,6 +1000,10 @@ typedef struct amy_fill_stage_diagnostic {
     uint64_t total_sum_us;
     uint32_t prefix_max_us;
     uint32_t merge_max_us;
+    uint32_t room_clear_max_us;
+    uint32_t bus_fx_max_us;
+    uint32_t bus_send_max_us;
+    uint32_t bus_post_max_us;
     uint32_t buses_max_us;
     uint32_t reverb_max_us;
     uint32_t output_max_us;
@@ -1010,6 +1018,10 @@ static volatile uint32_t fill_stage_diagnostic_seq;
 
 static void fill_stage_diagnostic_record(uint32_t prefix_us,
                                          uint32_t merge_us,
+                                         uint32_t room_clear_us,
+                                         uint32_t bus_fx_us,
+                                         uint32_t bus_send_us,
+                                         uint32_t bus_post_us,
                                          uint32_t buses_us,
                                          uint32_t reverb_us,
                                          uint32_t output_us,
@@ -1024,6 +1036,10 @@ static void fill_stage_diagnostic_record(uint32_t prefix_us,
     amy_memory_fence();
     RECORD_FILL_STAGE(prefix, prefix_us);
     RECORD_FILL_STAGE(merge, merge_us);
+    RECORD_FILL_STAGE(room_clear, room_clear_us);
+    RECORD_FILL_STAGE(bus_fx, bus_fx_us);
+    RECORD_FILL_STAGE(bus_send, bus_send_us);
+    RECORD_FILL_STAGE(bus_post, bus_post_us);
     RECORD_FILL_STAGE(buses, buses_us);
     RECORD_FILL_STAGE(reverb, reverb_us);
     RECORD_FILL_STAGE(output, output_us);
@@ -1061,17 +1077,25 @@ void amy_fill_stage_diagnostics_print(void) {
             "AMY ESP fill stages: interval_calls=%u "
             "interval_avg_us prefix=%u merge=%u buses=%u reverb=%u output=%u "
             "bookkeeping=%u total=%u "
+            "bus_detail_avg_us clear=%u fx=%u send=%u post=%u "
             "max_us prefix=%u merge=%u buses=%u reverb=%u output=%u "
-            "bookkeeping=%u total=%u\n",
+            "bookkeeping=%u total=%u "
+            "bus_detail_max_us clear=%u fx=%u send=%u post=%u\n",
             (unsigned)calls,
             INTERVAL_AVG(prefix), INTERVAL_AVG(merge), INTERVAL_AVG(buses),
             INTERVAL_AVG(reverb), INTERVAL_AVG(output),
             INTERVAL_AVG(bookkeeping), INTERVAL_AVG(total),
+            INTERVAL_AVG(room_clear), INTERVAL_AVG(bus_fx),
+            INTERVAL_AVG(bus_send), INTERVAL_AVG(bus_post),
             (unsigned)stats.prefix_max_us, (unsigned)stats.merge_max_us,
             (unsigned)stats.buses_max_us, (unsigned)stats.reverb_max_us,
             (unsigned)stats.output_max_us,
             (unsigned)stats.bookkeeping_max_us,
-            (unsigned)stats.total_max_us);
+            (unsigned)stats.total_max_us,
+            (unsigned)stats.room_clear_max_us,
+            (unsigned)stats.bus_fx_max_us,
+            (unsigned)stats.bus_send_max_us,
+            (unsigned)stats.bus_post_max_us);
 #undef INTERVAL_AVG
     fill_stage_print_baseline = stats;
 }
@@ -2821,6 +2845,10 @@ int16_t * amy_fill_buffer() {
     uint64_t fill_stage_started_us;
     uint32_t fill_prefix_us;
     uint32_t fill_merge_us;
+    uint32_t fill_room_clear_us;
+    uint32_t fill_bus_fx_us = 0;
+    uint32_t fill_bus_send_us = 0;
+    uint32_t fill_bus_post_us = 0;
     uint32_t fill_buses_us;
     uint32_t fill_reverb_us;
     uint32_t fill_output_us;
@@ -2889,7 +2917,13 @@ int16_t * amy_fill_buffer() {
             bzero(amy_global.reverb_rooms[room].block,
                   sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
     }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+    fill_room_clear_us = (uint32_t)(amy_get_us() - fill_stage_started_us);
+#endif
     for (int bus=0; bus <= amy_global.highest_bus; ++bus) {
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        uint64_t fill_bus_part_started_us = amy_get_us();
+#endif
         // Per-bus distortion, first so echo/reverb take clean tails.
         if (amy_global.bus[bus]->dist.stages) {
             dist_process_bus(bus, fbl[0][bus]);
@@ -2921,6 +2955,11 @@ int16_t * amy_fill_buffer() {
                 }
             }
         }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        fill_bus_fx_us +=
+            (uint32_t)(amy_get_us() - fill_bus_part_started_us);
+        fill_bus_part_started_us = amy_get_us();
+#endif
         // Shared reverbs are post-fader aux sends. The source bus remains in
         // the dry mix; only its scaled copy enters the selected room.
         uint16_t room = amy_global.bus[bus]->reverb_send_room;
@@ -2933,6 +2972,11 @@ int16_t * amy_fill_buffer() {
             for (int16_t i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
                 room_block[i] += MUL8_SS(gain, fbl[0][bus][i]);
         }
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        fill_bus_send_us +=
+            (uint32_t)(amy_get_us() - fill_bus_part_started_us);
+        fill_bus_part_started_us = amy_get_us();
+#endif
         if(AMY_HAS_REVERB) {
             // apply per-bus reverb.
             if(amy_global.bus[bus]->reverb.level > 0 && amy_global.bus[bus]->reverb.rev != NULL && amy_global.bus[bus]->reverb.rev->delay_1 != NULL) {
@@ -2961,6 +3005,10 @@ int16_t * amy_fill_buffer() {
             }
         }, bus, fbl[0][bus], AMY_BLOCK_SIZE, AMY_NCHANS);
         #endif
+#ifdef AMY_ESP_LOAD_DIAGNOSTIC
+        fill_bus_post_us +=
+            (uint32_t)(amy_get_us() - fill_bus_part_started_us);
+#endif
     }  // end of per-bus FX
 
 #ifdef AMY_ESP_LOAD_DIAGNOSTIC
@@ -3092,6 +3140,8 @@ int16_t * amy_fill_buffer() {
     uint32_t fill_total_us =
         (uint32_t)(amy_get_us() - fill_total_started_us);
     fill_stage_diagnostic_record(fill_prefix_us, fill_merge_us,
+                                 fill_room_clear_us, fill_bus_fx_us,
+                                 fill_bus_send_us, fill_bus_post_us,
                                  fill_buses_us, fill_reverb_us,
                                  fill_output_us, fill_bookkeeping_us,
                                  fill_total_us);

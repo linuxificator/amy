@@ -88,17 +88,17 @@ extern const uint32_t pcm_wavetable_len;
 // Left alone it is 8 (256 samples), or 7 (128) on Daisy, exactly as before.
 #if defined(AMY_BLOCK_SIZE) && !defined(BLOCK_SIZE_BITS)
 #if AMY_BLOCK_SIZE == 32
-#define BLOCK_SIZE_BITS 5
+#define BLOCK_SIZE_BITS (5)
 #elif AMY_BLOCK_SIZE == 64
-#define BLOCK_SIZE_BITS 6
+#define BLOCK_SIZE_BITS (6)
 #elif AMY_BLOCK_SIZE == 128
-#define BLOCK_SIZE_BITS 7
+#define BLOCK_SIZE_BITS (7)
 #elif AMY_BLOCK_SIZE == 256
-#define BLOCK_SIZE_BITS 8
+#define BLOCK_SIZE_BITS (8)
 #elif AMY_BLOCK_SIZE == 512
-#define BLOCK_SIZE_BITS 9
+#define BLOCK_SIZE_BITS (9)
 #elif AMY_BLOCK_SIZE == 1024
-#define BLOCK_SIZE_BITS 10
+#define BLOCK_SIZE_BITS (10)
 #else
 #error "AMY_BLOCK_SIZE must be a power of two from 32 through 1024"
 #endif

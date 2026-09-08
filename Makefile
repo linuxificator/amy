@@ -188,6 +188,12 @@ build-config-test:
 		-DEXPECT_AMY_SAMPLE_RATE=48000 \
 		tests/test_build_config.c -o tests/test_build_config_embedded
 	./tests/test_build_config_embedded
+	$(CC) $(CFLAGS) -Isrc \
+		-DAMY_BLOCK_SIZE=128 -DAMY_SAMPLE_RATE=48000 \
+		-DEXPECT_AMY_BLOCK_SIZE=128 -DEXPECT_BLOCK_SIZE_BITS=7 \
+		-DEXPECT_AMY_SAMPLE_RATE=48000 \
+		tests/test_build_config.c -o tests/test_build_config_legacy
+	./tests/test_build_config_legacy
 
 ctest: build-config-test $(CTESTS)
 	@for t in $(CTESTS); do echo "== $$t"; ./$$t || exit 1; done
@@ -271,4 +277,4 @@ clean:
 	-rm -f amy/constants.py
 	-rm -f $(TARGET)
 	-rm -f tests/*.o $(CTESTS)
-	-rm -f tests/test_build_config_default tests/test_build_config_embedded
+	-rm -f tests/test_build_config_default tests/test_build_config_embedded tests/test_build_config_legacy

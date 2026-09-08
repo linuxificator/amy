@@ -84,7 +84,25 @@ extern const uint32_t pcm_wavetable_len;
 // The block is a POWER OF TWO -- the per-block amplitude and pan ramps are
 // SHIFTR(delta, BLOCK_SIZE_BITS), not a divide -- so a host chooses it in
 // BITS, at compile time: -DBLOCK_SIZE_BITS=7 is a 128-sample block, 6 is 64.
+// AMY_BLOCK_SIZE remains accepted for existing embedded build recipes.
 // Left alone it is 8 (256 samples), or 7 (128) on Daisy, exactly as before.
+#if defined(AMY_BLOCK_SIZE) && !defined(BLOCK_SIZE_BITS)
+#if AMY_BLOCK_SIZE == 32
+#define BLOCK_SIZE_BITS 5
+#elif AMY_BLOCK_SIZE == 64
+#define BLOCK_SIZE_BITS 6
+#elif AMY_BLOCK_SIZE == 128
+#define BLOCK_SIZE_BITS 7
+#elif AMY_BLOCK_SIZE == 256
+#define BLOCK_SIZE_BITS 8
+#elif AMY_BLOCK_SIZE == 512
+#define BLOCK_SIZE_BITS 9
+#elif AMY_BLOCK_SIZE == 1024
+#define BLOCK_SIZE_BITS 10
+#else
+#error "AMY_BLOCK_SIZE must be a power of two from 32 through 1024"
+#endif
+#endif
 #ifndef BLOCK_SIZE_BITS
 #ifdef AMY_DAISY
 #define BLOCK_SIZE_BITS 7
@@ -95,7 +113,11 @@ extern const uint32_t pcm_wavetable_len;
 #if BLOCK_SIZE_BITS < 5 || BLOCK_SIZE_BITS > 10
 #error "BLOCK_SIZE_BITS must be 5..10 (a block of 32..1024 samples)"
 #endif
+#ifndef AMY_BLOCK_SIZE
 #define AMY_BLOCK_SIZE (1 << BLOCK_SIZE_BITS)
+#elif AMY_BLOCK_SIZE != (1 << BLOCK_SIZE_BITS)
+#error "AMY_BLOCK_SIZE and BLOCK_SIZE_BITS describe different block sizes"
+#endif
 
 #ifndef AMY_SAMPLE_RATE
 #if defined(AMY_DAISY) || defined(__EMSCRIPTEN__)

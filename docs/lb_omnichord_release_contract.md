@@ -25,7 +25,7 @@ The release layers on:
 - deterministic offline CPython startup for tests;
 - ignored-note-off bookkeeping suitable for indefinitely running one-shot
   percussion synths;
-- 336 oscillators and 11 buses; and
+- 336 oscillators, 11 buses, and two shared aux returns; and
 - 1,280 sequence tags, 64 events per definition and 40 active or
   alignment-pending executions.
 

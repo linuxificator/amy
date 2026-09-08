@@ -76,9 +76,10 @@ calls AMY and never participates in audio rendering.
 
 AMY is started with its internal platform audio disabled and with AMY rendering
 owned by the Oboe callback thread. The current Android build configuration
-reserves 336 addressable oscillators, 11 runtime buses, and 16 Karplus-Strong
-oscillators. These are service-host capacities, not wire-protocol extensions:
-clients continue to send ordinary AMY messages and may use any smaller layout.
+reserves 336 addressable oscillators, 11 runtime buses, two shared aux returns,
+and 16 Karplus-Strong oscillators. These are service-host capacities, not
+wire-protocol extensions: clients continue to send ordinary AMY messages and
+may use any smaller layout.
 
 ## JNI boundary
 

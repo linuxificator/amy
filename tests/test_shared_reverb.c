@@ -129,6 +129,23 @@ static void test_audio_and_deferred_diagnostics(void) {
     }
 }
 
+static void test_disabled_room_never_returns_its_dry_input(void) {
+    puts("disabled shared room is a silent return");
+    start_shared();
+    amy_add_message("hR0,0,0.85,0.5,3000Z"
+                    "y0hS0,1Z"
+                    "v0w0f440l1y0Z");
+    amy_execute_deltas();
+    amy_simple_fill_buffer();
+
+    SAMPLE *return_block = amy_global.reverb_rooms[0].block;
+    bool return_is_silent = true;
+    for (int i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)
+        if (return_block[i] != 0) return_is_silent = false;
+    CHECK(return_is_silent,
+          "zero-level shared room does not duplicate the dry bus");
+}
+
 static void test_external_hook_serial_fallback(void) {
     puts("external bus hooks retain one ordered callback per bus");
     for (int bus = 0; bus < 4; ++bus) bus_hook_calls[bus] = 0;
@@ -219,6 +236,7 @@ int main(void) {
     amy_start(config);
     test_arena_and_wire_routing();
     test_audio_and_deferred_diagnostics();
+    test_disabled_room_never_returns_its_dry_input();
     test_external_hook_serial_fallback();
     test_external_aux_return();
     test_runtime_room_count_is_not_fixed_at_two();

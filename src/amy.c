@@ -640,7 +640,13 @@ void amy_process_reverb_room(uint16_t room) {
     // A disabled return cannot contribute to the mix. Avoid walking all of
     // its delay memory, but keep processing an enabled room through silent
     // input so an existing tail decays naturally.
-    if (state->effect.level == 0) return;
+    if (state->effect.level == 0) {
+        // The room block already contains this block's weighted bus sends.
+        // A disabled effect is a silent return, not a second dry mix path.
+        bzero(state->block,
+              sizeof(SAMPLE) * AMY_BLOCK_SIZE * AMY_NCHANS);
+        return;
+    }
     stereo_reverb_wet(state->effect.rev, state->block,
                       AMY_NCHANS > 1 ? state->block + AMY_BLOCK_SIZE : NULL,
                       state->block,

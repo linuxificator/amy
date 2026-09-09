@@ -935,9 +935,28 @@ uint8_t sequencer_sequence_control_with_origin(
             uint32_t start_tick = sequence_control_tick(
                 alignment_period, origin, current_tick);
             stored_sequence_execution_t *available = NULL;
+            stored_sequence_execution_t *pending_replacement = NULL;
             uint32_t available_slot = 0;
+            uint32_t replacement_slot = 0;
+            for (uint32_t i = 0;
+                 i < max_stored_sequence_executions; ++i) {
+                stored_sequence_execution_t *execution =
+                    &sequence_executions[i];
+                if (execution->occupied
+                    && execution->tag == tag
+                    && !execution->started
+                    && execution->start_tick == start_tick
+                    && execution->stop_pending
+                    && execution->stop_tick == start_tick) {
+                    pending_replacement = execution;
+                    replacement_slot = i;
+                    break;
+                }
+            }
             for (uint32_t word = 0;
-                 word < execution_bit_words && available == NULL; ++word) {
+                 pending_replacement == NULL
+                 && word < execution_bit_words
+                 && available == NULL; ++word) {
                 uint32_t occupied = occupied_execution_bits[word];
                 if (occupied == UINT32_MAX) continue;
                 for (uint32_t bit = 0; bit < 32; ++bit) {
@@ -950,7 +969,35 @@ uint8_t sequencer_sequence_control_with_origin(
                     }
                 }
             }
-            if (available == NULL) {
+            if (pending_replacement != NULL) {
+                stored_sequence_definition_t *old_definition =
+                    pending_replacement->definition;
+                (*slot)->refs++;
+                memset(pending_replacement, 0,
+                       sizeof(*pending_replacement));
+                pending_replacement->definition = *slot;
+                pending_replacement->tag = tag;
+                pending_replacement->start_tick = start_tick;
+                pending_replacement->occupied = true;
+
+                uint32_t word = replacement_slot / 32;
+                uint32_t mask = 1u << (replacement_slot % 32);
+                control_execution_bits[word] &= ~mask;
+                regular_execution_bits[word] &= ~mask;
+                if ((*slot)->has_control_event)
+                    control_execution_bits[word] |= mask;
+                if ((*slot)->has_regular_event)
+                    regular_execution_bits[word] |= mask;
+
+                stored_sequence_definition_t *dead =
+                    stored_sequence_definition_release_locked(
+                        old_definition, origin);
+                if (dead != NULL) {
+                    dead->next_retired = retired_sequence_definitions;
+                    retired_sequence_definitions = dead;
+                }
+                result = 1;
+            } else if (available == NULL) {
                 fprintf(stderr, "cannot start sequence %" PRIu32
                         ": all %" PRIu32 " execution slots are occupied\n",
                         tag, max_stored_sequence_executions);

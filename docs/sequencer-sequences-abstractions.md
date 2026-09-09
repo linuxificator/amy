@@ -146,5 +146,14 @@ Allocation failure, a full definition, an unavailable execution slot, an
 invalid tag, and malformed action shapes fail with diagnostics. A failed
 publication leaves the previously published definition intact.
 
+An aligned stop–replace-definition–start transaction also remains bounded
+when a controller publishes several revisions before the alignment boundary.
+The first transaction retains the currently playing execution and reserves one
+pending replacement. A later stop and start for the same tag and exact boundary
+updates that not-yet-started replacement to the newest immutable definition;
+it does not reserve another execution slot. This is a narrow coalescing rule,
+not a change to start semantics: repeated starts without the matching pending
+stop still create independent overlapping executions.
+
 See [Status and compatibility](sequencer-sequences-status.md) for validated
 behavior, platform limits, and migration guidance.

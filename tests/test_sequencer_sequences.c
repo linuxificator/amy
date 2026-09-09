@@ -537,6 +537,38 @@ static void test_bounds_and_validation(void) {
           "gate duration beyond the wrap-safe interval is rejected");
 }
 
+static void test_pending_aligned_replacement_reuses_one_execution(void) {
+    printf("pending aligned replacement reuses one execution slot\n");
+    sequencer_reset();
+    clear_marks();
+    amy_add_message("H0,4,3zPfirstZ");
+    CHECK(sequencer_sequence_control(3, SEQUENCE_CONTROL_START, 0, 1),
+          "initial repeating execution starts");
+    clock_to(sequencer_ticks() + 1);
+
+    int replacements = 0;
+    for (int i = 0; i < 24; ++i) {
+        replacements += sequencer_sequence_control(
+            3, SEQUENCE_CONTROL_STOP, 0, 64);
+        CHECK(sequencer_sequence_reset(3),
+              "replacement %d resets the stored definition", i + 1);
+        CHECK(sequencer_sequence_add_wire(
+                  3, 0, 4, strdup("zPlatestZ")),
+              "replacement %d publishes its definition", i + 1);
+        replacements += sequencer_sequence_control(
+            3, SEQUENCE_CONTROL_START, 0, 64);
+    }
+    CHECK(replacements == 48,
+          "24 stop-start replacements fit an eight-slot pool");
+
+    uint32_t boundary = next_boundary(sequencer_ticks(), 64);
+    clock_to(boundary);
+    CHECK(mark_at("latest", boundary),
+          "the last replacement becomes active on the requested boundary");
+    CHECK(marks_named("latest") == 1,
+          "coalescing does not create duplicate executions");
+}
+
 static void test_wire_control_shape_is_strict(void) {
     printf("sequence control and reset wire shapes are strict\n");
     sequencer_reset();
@@ -761,6 +793,7 @@ int main(void) {
     test_gate_and_stop_cross_clock_rollover();
     test_execution_lifetime_beyond_half_clock_range();
     test_bounds_and_validation();
+    test_pending_aligned_replacement_reuses_one_execution();
     test_wire_control_shape_is_strict();
 
     amy_stop();
